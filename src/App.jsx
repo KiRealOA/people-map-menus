@@ -1,10 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
+  ArrowLeft,
   BellRing,
   Check,
+  CheckCircle2,
   Clock3,
   Compass,
   DoorOpen,
+  Download,
+  FileUp,
   Map as MapIcon,
   Mail,
   MessageCircle,
@@ -17,9 +22,12 @@ import {
   Users,
   X,
   ZoomIn,
-  ZoomOut
+  ZoomOut,
+  AlertCircle,
+  LoaderCircle
 } from "lucide-react";
 import officeBackdrop from "./assets/katmai-office-backdrop.png";
+import officeBackdropVideo from "./assets/Katmai_Office_bg_01.mp4";
 
 const PERSON_PHOTOS = {
   maya: "https://randomuser.me/api/portraits/women/44.jpg",
@@ -50,6 +58,12 @@ const CURRENT_USER = {
   name: "You",
   photo: PERSON_PHOTOS.you,
   palette: ["#efe9ff", "#8c52ff", "#5801eb"]
+};
+
+const USER_ROLES = ["Team Member", "Office Administrator", "Guest"];
+const BILLING_CONFIG = {
+  monthlyUserPrice: 15,
+  currency: "USD"
 };
 
 const PEOPLE = [
@@ -954,6 +968,16 @@ function SpatialBackdrop() {
   return (
     <div className="spatial-backdrop" aria-hidden="true">
       <div className="office-photo" />
+      <video
+        className="office-video"
+        autoPlay
+        loop
+        muted
+        playsInline
+        preload="auto"
+      >
+        <source src={officeBackdropVideo} type="video/mp4" />
+      </video>
       <div className="office-soften" />
     </div>
   );
@@ -982,11 +1006,12 @@ function WindowFrame({
   onSurfaceChange,
   onToggleExpanded,
   extraControls,
+  hideChrome = false,
   children
 }) {
   return (
-    <div className={`surface-window ${kind}-window ${expanded ? "expanded" : ""}`}>
-      <div className="window-chrome">
+    <div className={`surface-window ${kind}-window ${expanded ? "expanded" : ""} ${hideChrome ? "no-window-chrome" : ""}`}>
+      {!hideChrome && <div className="window-chrome">
         <div className="window-heading">
           <h1>{title}</h1>
         </div>
@@ -998,7 +1023,7 @@ function WindowFrame({
             </div>
           )}
         </div>
-      </div>
+      </div>}
       <div className="window-body">{children}</div>
     </div>
   );
@@ -1027,6 +1052,262 @@ function SurfaceSwitcher({ activeSurface, onSurfaceChange }) {
   );
 }
 
+function isValidInviteEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function parseInviteCsv(text) {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const rows = [];
+  const errors = [];
+  if (!lines.length) return { rows, errors: ["The CSV file is empty."] };
+
+  const firstCells = lines[0].split(",").map((cell) => cell.trim().toLowerCase());
+  const startsWithHeader = firstCells[0] === "email" && firstCells[1] === "role";
+  const dataLines = startsWithHeader ? lines.slice(1) : lines;
+
+  dataLines.forEach((line, index) => {
+    const rowNumber = startsWithHeader ? index + 2 : index + 1;
+    const [email = "", role = "", ...extra] = line.split(",").map((cell) => cell.trim());
+    const rowErrors = [];
+    if (!email || !isValidInviteEmail(email)) rowErrors.push("Enter a valid email address.");
+    if (!USER_ROLES.includes(role)) rowErrors.push(`Role must be ${USER_ROLES.join(", ")}.`);
+    if (extra.length) rowErrors.push("Use one email and one role per row.");
+    if (rowErrors.length) errors.push(`Row ${rowNumber}: ${rowErrors.join(" ")}`);
+    else rows.push({ email: email.toLowerCase(), role });
+  });
+
+  const seen = new Set();
+  const uniqueRows = rows.filter((row) => {
+    if (seen.has(row.email)) {
+      errors.push(`Duplicate email: ${row.email}.`);
+      return false;
+    }
+    seen.add(row.email);
+    return true;
+  });
+  return { rows: uniqueRows, errors };
+}
+
+function InviteUsersModal({ open, onClose, onInvite, embedded = false }) {
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState("");
+  const [manualInvitations, setManualInvitations] = useState([]);
+  const [csvInvitations, setCsvInvitations] = useState([]);
+  const [csvFileName, setCsvFileName] = useState("");
+  const [csvErrors, setCsvErrors] = useState([]);
+  const [emailAutomatically, setEmailAutomatically] = useState(true);
+  const [status, setStatus] = useState("idle");
+  const [formError, setFormError] = useState("");
+  const dialogRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  const invitations = useMemo(
+    () => [...manualInvitations, ...csvInvitations],
+    [manualInvitations, csvInvitations]
+  );
+  const invitationEmails = useMemo(
+    () => new Set(invitations.map((invitation) => invitation.email)),
+    [invitations]
+  );
+
+  useEffect(() => {
+    if (!open) return undefined;
+    dialogRef.current?.focus();
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape" && status !== "submitting") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, onClose, status]);
+
+  useEffect(() => {
+    if (!open) {
+      setEmail("");
+      setRole("");
+      setManualInvitations([]);
+      setCsvInvitations([]);
+      setCsvFileName("");
+      setCsvErrors([]);
+      setStatus("idle");
+      setFormError("");
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  function addManualUser(event) {
+    event.preventDefault();
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!isValidInviteEmail(normalizedEmail) || !USER_ROLES.includes(role)) return;
+    if (invitationEmails.has(normalizedEmail)) {
+      setFormError("That email address is already in the invitation list.");
+      return;
+    }
+    setManualInvitations((current) => [...current, { email: normalizedEmail, role }]);
+    setEmail("");
+    setRole("");
+    setFormError("");
+  }
+
+  function handleCsvFile(file) {
+    if (!file) return;
+    setCsvFileName(file.name);
+    setCsvInvitations([]);
+    setCsvErrors([]);
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      setCsvErrors(["Please select a .csv file."]);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const parsed = parseInviteCsv(String(reader.result || ""));
+      const duplicateErrors = parsed.rows
+        .filter((row) => invitationEmails.has(row.email))
+        .map((row) => `Duplicate email: ${row.email}.`);
+      setCsvInvitations(parsed.rows.filter((row) => !invitationEmails.has(row.email)));
+      setCsvErrors([...parsed.errors, ...duplicateErrors]);
+    };
+    reader.onerror = () => setCsvErrors(["The CSV file could not be read."]);
+    reader.readAsText(file);
+  }
+
+  function downloadTemplate() {
+    const blob = new Blob([`email,role\njohndoe@example.com,Team Member\n`], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "invite-users-template.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function submitInvitations(event) {
+    event.preventDefault();
+    if (!invitations.length || csvErrors.length || status === "submitting") return;
+    setStatus("submitting");
+    setFormError("");
+    window.setTimeout(() => {
+      try {
+        onInvite(invitations, { emailAutomatically });
+        setStatus("success");
+        window.setTimeout(onClose, 700);
+      } catch {
+        setStatus("error");
+        setFormError("The invitations could not be added. Please try again.");
+      }
+    }, 350);
+  }
+
+  const canAddManualUser = isValidInviteEmail(email) && USER_ROLES.includes(role);
+  const canSubmit = invitations.length > 0 && csvErrors.length === 0 && status !== "submitting";
+  const submitLabel = invitations.length > 1 ? "Add Users" : "Add User";
+
+  const modalContent = (
+      <form
+        ref={dialogRef}
+        className={`invite-modal ${embedded ? "invite-modal-embedded" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="invite-users-title"
+        tabIndex="-1"
+        onSubmit={submitInvitations}
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="window-chrome invite-modal-header">
+          <div className="window-heading"><h1 id="invite-users-title">Invite Users</h1></div>
+          <button className="invite-modal-back" type="button" aria-label="Back to Users" onClick={onClose} disabled={status === "submitting"}>
+            <ArrowLeft size={15} aria-hidden="true" />
+            <span>Back to Users</span>
+          </button>
+        </header>
+
+        <section className="invite-modal-section invite-modal-manual" aria-labelledby="manual-invite-heading">
+          <h3 id="manual-invite-heading" className="sr-only">Add a user</h3>
+          <div className="invite-modal-fields">
+            <label>
+              <span>Email address</span>
+              <input
+                type="email"
+                name="invite-user-email"
+                autoComplete="off"
+                data-lpignore="true"
+                data-1p-ignore="true"
+                spellCheck="false"
+                value={email}
+                onChange={(event) => { setEmail(event.target.value); setFormError(""); }}
+                placeholder="name@example.com"
+              />
+            </label>
+            <label>
+              <span>Assigned role</span>
+              <select
+                className={role ? "has-value" : ""}
+                value={role}
+                onChange={(event) => setRole(event.target.value)}
+                aria-label="Assigned role"
+              >
+                <option value="">Select a role</option>
+                {USER_ROLES.map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>
+            </label>
+          </div>
+          <button className="invite-modal-secondary-action" type="button" onClick={addManualUser} disabled={!canAddManualUser}>
+            <UserPlus size={16} aria-hidden="true" /> Add User
+          </button>
+          {formError && <p className="invite-modal-error" role="alert"><AlertCircle size={15} aria-hidden="true" />{formError}</p>}
+        </section>
+
+        <section className="invite-modal-section invite-modal-bulk" aria-labelledby="bulk-invite-heading">
+          <div className="invite-modal-section-heading">
+            <h3 id="bulk-invite-heading">Invite by CSV</h3>
+            <button className="invite-modal-link" type="button" onClick={downloadTemplate}><Download size={14} aria-hidden="true" /> Download template</button>
+          </div>
+          <p className="invite-modal-copy">Upload a CSV with an email address and assigned role on each row.</p>
+          <div className="invite-modal-example" aria-label="CSV example rows">
+            <strong>Example</strong>
+            <code>johndoe@example.com, Team Member</code>
+            <code>janedoe@example.com, Office Administrator</code>
+          </div>
+          <div
+            className="invite-modal-upload"
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => { event.preventDefault(); handleCsvFile(event.dataTransfer.files?.[0]); }}
+          >
+            <FileUp size={20} aria-hidden="true" />
+            <div><strong>{csvFileName || "Choose a CSV file"}</strong><span>or drag and drop it here</span></div>
+            <input ref={fileInputRef} type="file" accept=".csv,text/csv" onChange={(event) => handleCsvFile(event.target.files?.[0])} aria-label="Upload CSV file" />
+            <button type="button" onClick={() => fileInputRef.current?.click()}>Browse</button>
+          </div>
+          {csvErrors.length > 0 && <div className="invite-modal-errors" role="alert" aria-label="CSV validation errors">{csvErrors.map((error, index) => <p key={`${error}-${index}`}><AlertCircle size={14} aria-hidden="true" />{error}</p>)}</div>}
+        </section>
+
+        {invitations.length > 0 && <ul className="invite-modal-list" aria-label="Users to invite">{invitations.map((invitation) => <li key={`${invitation.email}-${invitation.role}`}><span>{invitation.email}</span><small>{invitation.role}</small></li>)}</ul>}
+
+        <div className="invite-modal-preferences">
+          <label className="invite-modal-checkbox"><input type="checkbox" checked={emailAutomatically} onChange={(event) => setEmailAutomatically(event.target.checked)} /><span><strong>Email new users automatically</strong><small>Send an invitation email as soon as each user is added.</small></span></label>
+          <p className="invite-modal-billing"><strong>${BILLING_CONFIG.monthlyUserPrice}/user monthly</strong><span>Added users are prorated for the active billing cycle.</span></p>
+        </div>
+
+        <footer className="invite-modal-footer">
+          {status === "success" && <p className="invite-modal-success" role="status"><CheckCircle2 size={16} aria-hidden="true" /> Users added successfully.</p>}
+          {status === "error" && <p className="invite-modal-error" role="alert"><AlertCircle size={15} aria-hidden="true" />{formError}</p>}
+          <button className="invite-modal-primary-action" type="submit" disabled={!canSubmit}>{status === "submitting" ? <><LoaderCircle size={16} className="invite-modal-spinner" aria-hidden="true" /> Adding...</> : submitLabel}</button>
+        </footer>
+      </form>
+  );
+
+  if (embedded) return modalContent;
+
+  return createPortal(
+    <div className="invite-modal-backdrop" role="presentation" onClick={(event) => event.target === event.currentTarget && onClose()}>
+      {modalContent}
+    </div>,
+    document.body
+  );
+}
+
 function PeopleSurface({
   activeSurface,
   expanded,
@@ -1038,11 +1319,7 @@ function PeopleSurface({
   const [statusFilters, setStatusFilters] = useState([]);
   const [filterOpen, setFilterOpen] = useState(false);
   const [addUserOpen, setAddUserOpen] = useState(false);
-  const [newUserName, setNewUserName] = useState("");
-  const [newUserRole, setNewUserRole] = useState("");
   const [addedPeople, setAddedPeople] = useState([]);
-  const [csvFileName, setCsvFileName] = useState("");
-  const [emailAutomatically, setEmailAutomatically] = useState(true);
   const [chatPersonId, setChatPersonId] = useState(null);
   const [chatClosing, setChatClosing] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState({
@@ -1071,27 +1348,19 @@ function PeopleSurface({
 
   const chatPerson = people.find((person) => person.id === chatPersonId);
 
-  function addUser(event) {
-    event.preventDefault();
-    const email = newUserName.trim();
-    if (!email) return;
-    const name = email.split("@")[0].replace(/[._-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
-
+  function addUsers(invitations) {
     setAddedPeople((current) => [
       ...current,
-      {
+      ...invitations.map(({ email, role }) => ({
         id: `user-${crypto.randomUUID()}`,
-        name,
-        role: newUserRole.trim() || "New user",
+        name: email.split("@")[0].replace(/[._-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()),
+        role,
         roomId: "south-pod",
         presenceGroup: "space",
         status: "Available",
         palette: ["#eef1ff", "#8c9ee8", "#3f5fc4"]
-      }
+      }))
     ]);
-    setNewUserName("");
-    setNewUserRole("");
-    setCsvFileName("");
     setAddUserOpen(false);
   }
 
@@ -1158,9 +1427,10 @@ function PeopleSurface({
         expanded={expanded}
         onSurfaceChange={onSurfaceChange}
         onToggleExpanded={onToggleExpanded}
+        hideChrome={addUserOpen}
       >
         <div
-          className={`people-content ${expanded ? "expanded" : ""} ${
+          className={`people-content ${addUserOpen ? "invite-users-open" : ""} ${expanded ? "expanded" : ""} ${
             chatPerson ? "with-chat" : ""
           }`}
         >
@@ -1251,7 +1521,7 @@ function PeopleSurface({
                 )}
               </div>
 
-              {addUserOpen && (
+              {false && addUserOpen && (
                 <div className="invite-users-backdrop" role="presentation" onClick={() => setAddUserOpen(false)}>
                   <form className="invite-users-modal" role="dialog" aria-modal="true" aria-labelledby="people-invite-users-title" onSubmit={addUser} onClick={(event) => event.stopPropagation()}>
                     <button className="invite-users-close" type="button" aria-label="Close invite users" onClick={() => setAddUserOpen(false)}>×</button>
@@ -1317,6 +1587,7 @@ function PeopleSurface({
             />
           )}
         </div>
+        {addUserOpen && <InviteUsersModal embedded open onClose={() => setAddUserOpen(false)} onInvite={addUsers} />}
       </WindowFrame>
     </section>
   );
@@ -1786,7 +2057,7 @@ function MapSurface({
 
   function canStartPan(target) {
     return !target.closest(
-      ".plan-room, .room-card, .map-tools, .person-marker, .user-marker, .map-search-results"
+      ".plan-room, .room-card, .map-tools, .map-compass-control, .radar-control, .person-marker, .user-marker, .map-search-results, .invite-modal-backdrop"
     );
   }
 
@@ -1849,6 +2120,22 @@ function MapSurface({
     setAddUserOpen(false);
   }
 
+  function addMapUsers(invitations) {
+    setAddedPeople((current) => [
+      ...current,
+      ...invitations.map(({ email, role }) => ({
+        id: `user-${crypto.randomUUID()}`,
+        name: email.split("@")[0].replace(/[._-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase()),
+        role,
+        roomId: "south-pod",
+        presenceGroup: "space",
+        status: "Available",
+        palette: ["#eef1ff", "#8c9ee8", "#3f5fc4"]
+      }))
+    ]);
+    setAddUserOpen(false);
+  }
+
   function handleStagePointerDown(event) {
     if (!canStartPan(event.target)) return;
     panStartRef.current = {
@@ -1895,7 +2182,8 @@ function MapSurface({
       className={`map-stage ${isPanning ? "is-panning" : ""} ${radarMode ? "radar-stage" : ""}`}
       role="application"
       aria-label="Architectural office map"
-      onClick={() => {
+      onClick={(event) => {
+        if (event.target.closest?.(".invite-modal-backdrop")) return;
         if (radarMode) return;
         if (ignoreStageClickRef.current) {
           ignoreStageClickRef.current = false;
@@ -1926,6 +2214,7 @@ function MapSurface({
             onEmailAutomaticallyChange={setEmailAutomatically}
             onSubmitAddUser={addMapUser}
             onCancelAddUser={() => setAddUserOpen(false)}
+            onInviteUsers={addMapUsers}
             onSelectPerson={(person) => {
               activatePerson(person);
             }}
@@ -1971,7 +2260,10 @@ function MapSurface({
           type="button"
           aria-label="Open compass view"
           title="Open compass view"
-          onClick={enterRadarMode}
+          onClick={(event) => {
+            event.stopPropagation();
+            enterRadarMode();
+          }}
         >
           <Compass size={18} aria-hidden="true" />
         </button>
@@ -2136,8 +2428,9 @@ function MapSurface({
         expanded={expanded}
         onSurfaceChange={onSurfaceChange}
         onToggleExpanded={onToggleExpanded}
+        hideChrome={addUserOpen}
       >
-        <div className={`map-content ${chatPerson ? "with-chat" : ""}`}>
+        <div className={`map-content ${addUserOpen ? "invite-users-open" : ""} ${chatPerson ? "with-chat" : ""}`}>
           {mapStage}
 
           {chatPerson && (
@@ -2155,6 +2448,7 @@ function MapSurface({
           )}
 
         </div>
+        {addUserOpen && <InviteUsersModal embedded open onClose={() => setAddUserOpen(false)} onInvite={addMapUsers} />}
       </WindowFrame>
     </section>
   );
@@ -2179,7 +2473,8 @@ function MapPersonSearch({
   onCsvFileChange,
   onEmailAutomaticallyChange,
   onSubmitAddUser,
-  onCancelAddUser
+  onCancelAddUser,
+  onInviteUsers
 }) {
   const hasQuery = query.trim().length > 0;
 
@@ -2200,7 +2495,7 @@ function MapPersonSearch({
         </button>
       </div>
 
-      {addUserOpen && (
+      {false && addUserOpen && (
         <div className="invite-users-backdrop" role="presentation" onClick={onCancelAddUser}>
           <form className="invite-users-modal" role="dialog" aria-modal="true" aria-labelledby="invite-users-title" onSubmit={onSubmitAddUser} onClick={(event) => event.stopPropagation()}>
             <button className="invite-users-close" type="button" aria-label="Close invite users" onClick={onCancelAddUser}>×</button>
@@ -2242,7 +2537,6 @@ function MapPersonSearch({
           </form>
         </div>
       )}
-
       {hasQuery && (
         <div className="map-search-results glass" aria-label="Map people search results">
           {matches.length ? (
