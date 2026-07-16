@@ -2348,7 +2348,7 @@ h2 {
 }
 
 .map-zone-fill {
-  fill: rgba(243, 246, 254, 0.8);
+  fill: rgb(243 246 254 / 35%);
 }
 
 .map-zone-outline {
