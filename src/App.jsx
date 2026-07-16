@@ -14,6 +14,7 @@ import {
   Mail,
   MessageCircle,
   Navigation,
+  Rocket,
   Search,
   Send,
   SlidersHorizontal,
@@ -349,6 +350,15 @@ const ROOMS = [
 
 const roomById = Object.fromEntries(ROOMS.map((room) => [room.id, room]));
 
+const INCOMING_REQUESTS = {
+  sol: { kind: "jump" },
+  dana: { kind: "summon" }
+};
+
+function getIncomingRequest(personId) {
+  return INCOMING_REQUESTS[personId] || null;
+}
+
 const CHAT_THREADS = {
   maya: {
     incoming: "I can review the deck once I wrap this call.",
@@ -359,12 +369,10 @@ const CHAT_THREADS = {
     outgoing: "Nice. Let me know if you want a second pair of eyes."
   },
   sol: {
-    incoming: "Are you free to sync on the feature plan?",
-    outgoing: "Yep, I can jump in shortly."
   },
   dana: {
     incoming: "Can we align on the team notes before lunch?",
-    outgoing: "Absolutely, I’m sending you a quick note."
+    incomingSecond: "Also, can you join me in the River room when you have a minute?"
   },
   eli: {
     incoming: "I’ve got an update from the support queue.",
@@ -463,7 +471,7 @@ function getChatTheme(personId) {
 }
 
 function getChatThread(person) {
-  return CHAT_THREADS[person.id] || {
+  return CHAT_THREADS[person.id] ?? {
     incoming: `I’m in ${roomById[person.roomId].name} if you need me.`,
     outgoing: "Sounds good, I’ll follow up shortly."
   };
@@ -877,11 +885,18 @@ function App() {
   const [toasts, setToasts] = useState([]);
   const [mapFocusPersonId, setMapFocusPersonId] = useState(null);
   const [currentUserRoomId, setCurrentUserRoomId] = useState("south-pod");
+  const jumpAttemptRef = useRef(0);
   const toastTimersRef = useRef(new globalThis.Map());
 
   function pushToast(message, tone = "clear") {
+    toastTimersRef.current.forEach((timers) => {
+      if (timers.close) window.clearTimeout(timers.close);
+      if (timers.remove) window.clearTimeout(timers.remove);
+    });
+    toastTimersRef.current.clear();
+
     const id = crypto.randomUUID();
-    setToasts((items) => [...items, { id, message, tone }]);
+    setToasts([{ id, message, tone }]);
     const closeTimer = window.setTimeout(() => {
       setToasts((items) =>
         items.map((item) => (item.id === id ? { ...item, closing: true } : item))
@@ -916,6 +931,25 @@ function App() {
     setExpanded((state) => ({ ...state, [kind]: !state[kind] }));
   }
 
+  function requestJump(person, onResult) {
+    const attempt = jumpAttemptRef.current + 1;
+    jumpAttemptRef.current = attempt;
+    const room = roomById[person.roomId];
+    const declined = attempt % 3 === 0;
+
+    window.setTimeout(() => {
+      if (declined) {
+        onResult({ status: "declined", room });
+        pushToast(`${person.name} declined your jump request`, "danger");
+        return;
+      }
+
+      setCurrentUserRoomId(room.id);
+      onResult({ status: "accepted", room });
+      pushToast(`Jump accepted — you moved to ${room.name} with ${person.name}`, "success");
+    }, 1400);
+  }
+
   return (
     <main
       className="app-shell"
@@ -933,6 +967,7 @@ function App() {
             setMapFocusPersonId(personId);
             setSurface("map");
           }}
+          onJumpRequest={requestJump}
         />
       )}
 
@@ -948,13 +983,9 @@ function App() {
           onMoveToRoom={(room, message) => {
             setCurrentUserRoomId(room.id);
             pushToast(message, "success");
-            if ((peopleByRoom[room.id] || []).length > 0) {
-              window.setTimeout(() => {
-                pushToast(`${room.name} occupants were notified`, "clear");
-              }, 700);
-            }
           }}
           pushToast={pushToast}
+          onJumpRequest={requestJump}
         />
       )}
 
@@ -1031,10 +1062,12 @@ function WindowFrame({
 
 function SurfaceSwitcher({ activeSurface, onSurfaceChange }) {
   return (
-    <nav className="surface-switcher" aria-label="Essential Mode surfaces">
+    <nav className="surface-switcher" role="tablist" aria-label="Essential Mode surfaces">
       <button
         className={activeSurface === "people" ? "active" : ""}
         type="button"
+        role="tab"
+        aria-selected={activeSurface === "people"}
         onClick={() => onSurfaceChange("people")}
       >
         <Users size={17} aria-hidden="true" />
@@ -1043,6 +1076,8 @@ function SurfaceSwitcher({ activeSurface, onSurfaceChange }) {
       <button
         className={activeSurface === "map" ? "active" : ""}
         type="button"
+        role="tab"
+        aria-selected={activeSurface === "map"}
         onClick={() => onSurfaceChange("map")}
       >
         <MapIcon size={17} aria-hidden="true" />
@@ -1313,7 +1348,8 @@ function PeopleSurface({
   expanded,
   onSurfaceChange,
   onToggleExpanded,
-  onOpenMapForPerson
+  onOpenMapForPerson,
+  onJumpRequest
 }) {
   const [query, setQuery] = useState("");
   const [statusFilters, setStatusFilters] = useState([]);
@@ -1383,6 +1419,7 @@ function PeopleSurface({
   }
 
   function addRequestMessage(person, kind) {
+    const id = crypto.randomUUID();
     const room = roomById[person.roomId];
     const copy =
       kind === "jump"
@@ -1394,12 +1431,26 @@ function PeopleSurface({
       [person.id]: [
         ...(state[person.id] || []),
         {
-          id: crypto.randomUUID(),
+          id,
           kind,
-          text: copy
+          text: copy,
+          status: "pending"
         }
       ]
     }));
+
+    if (kind === "jump") {
+      onJumpRequest?.(person, (result) => {
+        setChatRequests((state) => ({
+          ...state,
+          [person.id]: (state[person.id] || []).map((message) =>
+            message.id === id
+              ? { ...message, status: result.status, roomName: result.room.name }
+              : message
+          )
+        }));
+      });
+    }
   }
 
   function handleJump(person) {
@@ -1598,6 +1649,9 @@ function PersonRow({
   active,
   onChat
 }) {
+  const incomingRequest = getIncomingRequest(person.id);
+  const unreadItemCount = (person.unreadCount || 0) + (incomingRequest ? 1 : 0);
+
   return (
     <article
       className={`person-row ${active ? "active" : ""}`}
@@ -1620,9 +1674,12 @@ function PersonRow({
           </span>
         </span>
         {person.status && <Presence signal={person.signal} label={person.status} />}
-        {person.unreadCount ? (
-          <span className="unread-badge" aria-label={`${person.unreadCount} unread messages`}>
-            {person.unreadCount}
+        {unreadItemCount ? (
+          <span
+            className={`unread-badge ${incomingRequest ? "has-action" : ""}`}
+            aria-label={`${unreadItemCount} unread items${incomingRequest ? ", including an action required" : ""}`}
+          >
+            {unreadItemCount}
           </span>
         ) : null}
       </div>
@@ -1675,8 +1732,14 @@ function PeopleRosterSection({
 function ChatPanel({ person, requestMessages, closing, onClose, onJump, onSummon, onMap }) {
   const thread = getChatThread(person);
   const theme = getChatTheme(person.id);
+  const incomingRequest = getIncomingRequest(person.id);
+  const [incomingRequestState, setIncomingRequestState] = useState("pending");
   const incomingTime = person.id.charCodeAt(0) % 2 === 0 ? "10:42 AM" : "10:38 AM";
   const outgoingTime = person.id.charCodeAt(person.id.length - 1) % 2 === 0 ? "10:44 AM" : "10:41 AM";
+
+  useEffect(() => {
+    setIncomingRequestState("pending");
+  }, [person.id]);
 
   return (
     <aside
@@ -1695,7 +1758,7 @@ function ChatPanel({ person, requestMessages, closing, onClose, onJump, onSummon
             <strong>{person.name}</strong>
             <div className="chat-heading-actions" aria-label={`Actions for ${person.name}`}>
               <ActionButton label="Jump to" onClick={onJump}>
-                <Navigation size={16} />
+                <Rocket size={16} />
               </ActionButton>
               <ActionButton label="Summon" onClick={onSummon}>
                 <BellRing size={16} />
@@ -1712,26 +1775,56 @@ function ChatPanel({ person, requestMessages, closing, onClose, onJump, onSummon
       </div>
 
       <div className="chat-thread">
-        <div className="message-group incoming">
-          <div className="message-meta">{person.name} · {incomingTime}</div>
-          <p className="message incoming">{thread.incoming}</p>
-        </div>
-        <div className="message-group outgoing">
-          <div className="message-meta">You · {outgoingTime}</div>
-          <p className="message outgoing">{thread.outgoing}</p>
-        </div>
+        {thread.incoming && (
+          <div className="message-group incoming">
+            <div className="message-meta">{person.name} · {incomingTime}</div>
+            <p className="message incoming">{thread.incoming}</p>
+          </div>
+        )}
+        {thread.incomingSecond && (
+          <div className="message-group incoming">
+            <div className="message-meta">{person.name} · 10:47 AM</div>
+            <p className="message incoming">{thread.incomingSecond}</p>
+          </div>
+        )}
+        {thread.outgoing && (
+          <div className="message-group outgoing">
+            <div className="message-meta">You · {outgoingTime}</div>
+            <p className="message outgoing">{thread.outgoing}</p>
+          </div>
+        )}
+        {incomingRequest && (
+          <IncomingRequestCard
+            kind={incomingRequest.kind}
+            person={person}
+            state={incomingRequestState}
+            onResolve={setIncomingRequestState}
+          />
+        )}
         {requestMessages.map((message) => (
-          <div className="request-toast" key={message.id}>
+          <div className={`request-toast ${message.status || "pending"}`} key={message.id} role="status">
             <span className="request-toast-icon" aria-hidden="true">
-              {message.kind === "jump" ? <Navigation size={16} /> : <BellRing size={16} />}
+              {message.kind === "jump"
+                ? message.status === "accepted" ? <Check size={16} /> : <Rocket size={16} />
+                : <BellRing size={16} />}
             </span>
             <div className="request-toast-copy">
               <strong>
-                {message.kind === "jump" ? "Jump request sent" : "Summon request sent"}
+                {message.kind !== "jump"
+                  ? "Summon request sent"
+                  : message.status === "accepted"
+                  ? "Jump request accepted"
+                  : message.status === "declined"
+                  ? "Jump request declined"
+                  : "Jump request sent"}
               </strong>
               <span>
                 {message.kind === "jump"
-                  ? "Waiting for approval to move to their room."
+                  ? message.status === "accepted"
+                    ? `You moved to ${message.roomName}.`
+                    : message.status === "declined"
+                    ? `${person.name} declined the request.`
+                    : "Waiting for approval to move to their room."
                   : "Waiting for approval to bring them here."}
               </span>
             </div>
@@ -1749,6 +1842,47 @@ function ChatPanel({ person, requestMessages, closing, onClose, onJump, onSummon
   );
 }
 
+function IncomingRequestCard({ kind, person, state, onResolve }) {
+  const isJump = kind === "jump";
+  const isPending = state === "pending";
+
+  return (
+    <div className={`incoming-request-card ${kind} ${state}`} role="status">
+      <div className="incoming-request-heading">
+        <span className="incoming-request-icon" aria-hidden="true">
+          {isJump ? <Rocket size={17} /> : <BellRing size={17} />}
+        </span>
+        <div>
+          <strong>{isJump ? "Jump request" : "Summon request"}</strong>
+          <span>
+            {isPending
+              ? isJump
+                ? `${person.name} wants to jump to your location.`
+                : `${person.name} wants you to join their room.`
+              : state === "accepted"
+              ? isJump
+                ? `${person.name} can now join you.`
+                : `You accepted ${person.name}'s summon.`
+              : "Request declined."}
+          </span>
+        </div>
+      </div>
+      {isPending ? (
+        <div className="incoming-request-actions">
+          <button type="button" className="request-approve" onClick={() => onResolve("accepted")}>
+            <Check size={14} /> Approve
+          </button>
+          <button type="button" className="request-decline" onClick={() => onResolve("declined")}>
+            <X size={14} /> Decline
+          </button>
+        </div>
+      ) : (
+        <span className="incoming-request-result">{state === "accepted" ? "Approved" : "Declined"}</span>
+      )}
+    </div>
+  );
+}
+
 function MapSurface({
   activeSurface,
   expanded,
@@ -1758,7 +1892,8 @@ function MapSurface({
   focusPersonId,
   onFocusPersonHandled,
   onMoveToRoom,
-  pushToast
+  pushToast,
+  onJumpRequest
 }) {
   const [hoveredRoomId, setHoveredRoomId] = useState(null);
   const [selectedRoomId, setSelectedRoomId] = useState(null);
@@ -2019,20 +2154,36 @@ function MapSurface({
   }
 
   function addRequestMessage(person, kind) {
+    const id = crypto.randomUUID();
     setChatRequests((state) => ({
       ...state,
       [person.id]: [
         ...(state[person.id] || []),
         {
-          id: crypto.randomUUID(),
+          id,
           kind,
-          text: kind === "jump" ? "Request to jump" : "Summon request"
+          text: kind === "jump" ? "Request to jump" : "Summon request",
+          status: "pending"
         }
       ]
     }));
+
+    if (kind === "jump") {
+      onJumpRequest?.(person, (result) => {
+        setChatRequests((state) => ({
+          ...state,
+          [person.id]: (state[person.id] || []).map((message) =>
+            message.id === id
+              ? { ...message, status: result.status, roomName: result.room.name }
+              : message
+          )
+        }));
+      });
+    }
   }
 
   function goToRoom(room) {
+    setRequestStates((state) => ({ ...state, [room.id]: undefined }));
     setSelectedRoomId(null);
     setFocusedRoomId(null);
     setHoveredRoomId(null);
@@ -2041,7 +2192,6 @@ function MapSurface({
 
   function requestJoin(room) {
     setRequestStates((state) => ({ ...state, [room.id]: "pending" }));
-    pushToast(`Request sent to ${room.name}`, "clear");
 
     window.setTimeout(() => {
       if (room.response === "denied") {
@@ -2051,7 +2201,13 @@ function MapSurface({
       }
 
       setRequestStates((state) => ({ ...state, [room.id]: "approved" }));
-      pushToast(`${room.name} approved the request`, "success");
+      window.setTimeout(() => {
+        setRequestStates((state) => ({ ...state, [room.id]: undefined }));
+        setSelectedRoomId(null);
+        setFocusedRoomId(null);
+        setHoveredRoomId(null);
+        onMoveToRoom(room, `${room.name} approved — you moved there`);
+      }, 450);
     }, 1800);
   }
 
@@ -2802,9 +2958,9 @@ function RoomCallToAction({ isEmpty, state, onGo, onRequest, onJoin, onReset }) 
 
   if (state === "approved") {
     return (
-      <button className="room-cta approved" type="button" onClick={onJoin}>
+      <button className="room-cta approved" type="button" disabled>
         <Check size={18} aria-hidden="true" />
-        Join room
+        Moving to room…
       </button>
     );
   }
