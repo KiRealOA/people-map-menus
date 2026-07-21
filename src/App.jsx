@@ -54,7 +54,7 @@ const PERSON_PHOTOS = {
   you: "https://randomuser.me/api/portraits/men/52.jpg"
 };
 
-const CURRENT_USER = {
+export const CURRENT_USER = {
   id: "you",
   name: "You",
   photo: PERSON_PHOTOS.you,
@@ -67,7 +67,7 @@ const BILLING_CONFIG = {
   currency: "USD"
 };
 
-const PEOPLE = [
+export const PEOPLE = [
   {
     id: "maya",
     name: "Maya Chen",
@@ -307,7 +307,7 @@ const MAP_ZONE_D =
 const MAP_ZONE_OUTLINE_D =
   "M217.096 132.122L217.396 132.518L268.185 199.69L268.185 124.895L268.36 124.639L352.612 1.9373L352.91 1.50371L436.88 1.5037L437.142 1.69218L637.875 146.446L638.29 146.746L638.29 278.813L638.046 279.095L502.904 435.158L502.605 435.504L419.279 435.504L419.022 435.325L268.614 330.718L268.185 330.419L268.185 280.786L228.6 318.744L228.31 319.022L59.6572 319.022L59.4004 318.844L2.29103 279.263L1.86036 278.965L1.86036 172.749L2.28516 172.45L59.3955 132.304L59.6543 132.122L217.096 132.122Z";
 
-const ROOMS = [
+export const ROOMS = [
   { id: "forum", name: "Meeting Room #1", response: "approved", open: false },
   { id: "call", name: "Pod #1", response: "empty", open: true },
   { id: "lab", name: "Meeting Room #2", response: "approved", open: true },
@@ -1124,7 +1124,7 @@ function parseInviteCsv(text) {
   return { rows: uniqueRows, errors };
 }
 
-function InviteUsersModal({ open, onClose, onInvite, embedded = false }) {
+export function InviteUsersModal({ open, onClose, onInvite, embedded = false }) {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState("");
   const [manualInvitations, setManualInvitations] = useState([]);
@@ -1883,7 +1883,7 @@ function IncomingRequestCard({ kind, person, state, onResolve }) {
   );
 }
 
-function MapSurface({
+export function MapSurface({
   activeSurface,
   expanded,
   onSurfaceChange,
@@ -1893,7 +1893,10 @@ function MapSurface({
   onFocusPersonHandled,
   onMoveToRoom,
   pushToast,
-  onJumpRequest
+  onJumpRequest,
+  embedded = false,
+  additionalPeople = [],
+  overlay = null
 }) {
   const [hoveredRoomId, setHoveredRoomId] = useState(null);
   const [selectedRoomId, setSelectedRoomId] = useState(null);
@@ -1920,7 +1923,10 @@ function MapSurface({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
 
-  const mapPeople = useMemo(() => [...PEOPLE, ...addedPeople], [addedPeople]);
+  const mapPeople = useMemo(
+    () => [...PEOPLE, ...additionalPeople, ...addedPeople],
+    [additionalPeople, addedPeople]
+  );
   const peopleByRoomForMap = useMemo(
     () =>
       ROOMS.reduce((acc, room) => {
@@ -2213,7 +2219,7 @@ function MapSurface({
 
   function canStartPan(target) {
     return !target.closest(
-      ".plan-room, .room-card, .map-tools, .map-compass-control, .radar-control, .person-marker, .user-marker, .map-search-results, .invite-modal-backdrop"
+      ".plan-room, .room-card, .map-tools, .map-compass-control, .radar-control, .person-marker, .user-marker, .map-search-results, .invite-modal-backdrop, .confidence-monitor"
     );
   }
 
@@ -2380,6 +2386,10 @@ function MapSurface({
             }}
             onCompass={(person) => {
               activatePerson(person);
+              if (embedded) {
+                openChat(person.id);
+                return;
+              }
               openRadarForPerson(person);
             }}
             onQueryChange={(value) => {
@@ -2410,7 +2420,7 @@ function MapSurface({
         </div>
       )}
 
-      {!radarMode && (
+      {!radarMode && !embedded && (
         <button
           className="map-compass-control"
           type="button"
@@ -2511,7 +2521,7 @@ function MapSurface({
               activatePerson(person);
               openChat(person.id);
             }}
-            onCompassPerson={(person) => {
+            onCompassPerson={embedded ? undefined : (person) => {
               activatePerson(person);
               openRadarForPerson(person);
             }}
@@ -2530,8 +2540,45 @@ function MapSurface({
           />
         )}
       </div>
+      {overlay}
     </div>
   );
+
+  const mapContent = (
+    <div className={`map-content ${addUserOpen ? "invite-users-open" : ""} ${chatPerson ? "with-chat" : ""}`}>
+      {mapStage}
+
+      {chatPerson && (
+        <ChatPanel
+          person={chatPerson}
+          requestMessages={chatRequests[chatPerson.id] || []}
+          closing={chatClosing}
+          onClose={closeChat}
+          onJump={() => addRequestMessage(chatPerson, "jump")}
+          onSummon={() => addRequestMessage(chatPerson, "summon")}
+          onMap={() => {
+            activatePerson(chatPerson);
+          }}
+        />
+      )}
+    </div>
+  );
+
+  if (embedded) {
+    return (
+      <section className="basic-map-boundary" aria-label="Shared office map">
+        {mapContent}
+        {addUserOpen && (
+          <InviteUsersModal
+            embedded
+            open
+            onClose={() => setAddUserOpen(false)}
+            onInvite={addMapUsers}
+          />
+        )}
+      </section>
+    );
+  }
 
   if (radarMode) {
     return (
@@ -2586,24 +2633,7 @@ function MapSurface({
         onToggleExpanded={onToggleExpanded}
         hideChrome={addUserOpen}
       >
-        <div className={`map-content ${addUserOpen ? "invite-users-open" : ""} ${chatPerson ? "with-chat" : ""}`}>
-          {mapStage}
-
-          {chatPerson && (
-            <ChatPanel
-              person={chatPerson}
-              requestMessages={chatRequests[chatPerson.id] || []}
-              closing={chatClosing}
-              onClose={closeChat}
-              onJump={() => addRequestMessage(chatPerson, "jump")}
-              onSummon={() => addRequestMessage(chatPerson, "summon")}
-              onMap={() => {
-                activatePerson(chatPerson);
-              }}
-            />
-          )}
-
-        </div>
+        {mapContent}
         {addUserOpen && <InviteUsersModal embedded open onClose={() => setAddUserOpen(false)} onInvite={addMapUsers} />}
       </WindowFrame>
     </section>
@@ -2898,12 +2928,14 @@ function RoomDetailCard({
                 <span>{person.name}</span>
               </button>
               <div className="occupant-actions">
-                <IconButton
-                  label={`Locate ${person.name} in compass`}
-                  onClick={() => onCompassPerson?.(person)}
-                >
-                  <Compass size={14} />
-                </IconButton>
+                {onCompassPerson && (
+                  <IconButton
+                    label={`Locate ${person.name} in compass`}
+                    onClick={() => onCompassPerson(person)}
+                  >
+                    <Compass size={14} />
+                  </IconButton>
+                )}
                 <IconButton
                   label={`Chat with ${person.name}`}
                   onClick={() => onChatPerson?.(person)}
