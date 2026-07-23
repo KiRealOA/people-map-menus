@@ -279,7 +279,7 @@ export const PEOPLE = [
     id: "isla",
     name: "Isla Turner",
     role: "Content",
-    roomId: "river",
+    roomId: "grove",
     presenceGroup: "elsewhere",
     planX: 554,
     planY: 58,
@@ -1730,7 +1730,7 @@ function PeopleRosterSection({
   );
 }
 
-export function ChatPanel({ person, requestMessages, closing, onClose, onJump, onSummon, onMap }) {
+export function ChatPanel({ person, requestMessages, closing, onClose, onBack, onJump, onSummon, onMap }) {
   const thread = getChatThread(person);
   const theme = getChatTheme(person.id);
   const incomingRequest = getIncomingRequest(person.id);
@@ -1755,6 +1755,7 @@ export function ChatPanel({ person, requestMessages, closing, onClose, onJump, o
       <div className="chat-heading">
         <div className="chat-heading-copy">
           <div className="chat-title-row">
+            {onBack && <IconButton className="chat-back-button" label="Back to room details" onClick={onBack}><ArrowLeft size={17} /></IconButton>}
             <Avatar person={person} size="tiny" portrait />
             <strong>{person.name}</strong>
             <div className="chat-heading-actions" aria-label={`Actions for ${person.name}`}>
@@ -1918,6 +1919,7 @@ export function MapSurface({
   const [mapQuery, setMapQuery] = useState("");
   const [selectedPersonId, setSelectedPersonId] = useState(null);
   const [chatPersonId, setChatPersonId] = useState(null);
+  const [chatReturnRoomId, setChatReturnRoomId] = useState(null);
   const [radarMode, setRadarMode] = useState(false);
   const [radarFocusPersonId, setRadarFocusPersonId] = useState(null);
   const [chatClosing, setChatClosing] = useState(false);
@@ -2138,7 +2140,7 @@ export function MapSurface({
     };
   }, [radarFocusPerson, radarMode, zoom, currentUserMarkerPosition]);
 
-  function openChat(personId) {
+  function openChat(personId, returnRoomId = null) {
     if (chatCloseTimer.current) {
       window.clearTimeout(chatCloseTimer.current);
       chatCloseTimer.current = null;
@@ -2147,6 +2149,7 @@ export function MapSurface({
     setFocusedRoomId(null);
     setHoveredRoomId(null);
     setChatClosing(false);
+    setChatReturnRoomId(returnRoomId);
     setChatPersonId(personId);
   }
 
@@ -2156,11 +2159,27 @@ export function MapSurface({
     setSelectedRoomId(null);
     setFocusedRoomId(null);
     setHoveredRoomId(null);
+    setChatReturnRoomId(null);
     chatCloseTimer.current = window.setTimeout(() => {
       setChatPersonId(null);
       setChatClosing(false);
       chatCloseTimer.current = null;
     }, 300);
+  }
+
+  function returnToRoomDetails() {
+    if (!chatReturnRoomId) return;
+    if (chatCloseTimer.current) {
+      window.clearTimeout(chatCloseTimer.current);
+      chatCloseTimer.current = null;
+    }
+    setChatPersonId(null);
+    setChatClosing(false);
+    setSelectedPersonId(null);
+    setSelectedRoomId(chatReturnRoomId);
+    setFocusedRoomId(chatReturnRoomId);
+    setHoveredRoomId(null);
+    setChatReturnRoomId(null);
   }
 
   function clearSelections() {
@@ -2614,7 +2633,7 @@ export function MapSurface({
   );
 
   const mapContent = (
-    <div className={`map-content ${addUserOpen ? "invite-users-open" : ""} ${sidePanelOpen ? "with-chat" : ""} ${roomPanelOpen ? "with-room-details" : ""}`}>
+    <div className={`map-content ${addUserOpen ? "invite-users-open" : ""} ${sidePanelOpen ? "with-chat" : ""} ${roomPanelOpen ? "with-room-details" : ""} ${chatReturnRoomId ? "room-origin-chat-open" : ""}`}>
       {mapStage}
 
       {chatPerson && (
@@ -2623,6 +2642,7 @@ export function MapSurface({
           requestMessages={chatRequests[chatPerson.id] || []}
           closing={chatClosing}
           onClose={closeChat}
+          onBack={chatReturnRoomId ? returnToRoomDetails : undefined}
           onJump={() => addRequestMessage(chatPerson, "jump")}
           onSummon={() => addRequestMessage(chatPerson, "summon")}
           onMap={() => {
@@ -2651,7 +2671,7 @@ export function MapSurface({
           }}
           onSelectPerson={(person) => {
             activatePerson(person);
-            openChat(person.id);
+            openChat(person.id, selectedRoom.id);
           }}
           onClose={() => {
             setSelectedRoomId(null);
@@ -3031,7 +3051,6 @@ function RoomDetailsPanel({
                 <button className="room-details-person" type="button" key={person.id} onClick={() => onSelectPerson(person)}>
                   <Avatar person={person} size="small" portrait />
                   <span><strong>{person.name}</strong><small>{person.role || person.status || "Available"}</small></span>
-                  <MessageCircle size={17} aria-hidden="true" />
                 </button>
               ))}
             </div>
@@ -3365,10 +3384,10 @@ function Presence({ signal, label }) {
   return <span className={`presence ${signal}`}>{label}</span>;
 }
 
-function IconButton({ label, onClick, active = false, children }) {
+function IconButton({ label, onClick, active = false, className = "", children }) {
   return (
     <button
-      className={`icon-button ${active ? "active" : ""}`}
+      className={`icon-button ${className} ${active ? "active" : ""}`}
       type="button"
       aria-label={label}
       title={label}

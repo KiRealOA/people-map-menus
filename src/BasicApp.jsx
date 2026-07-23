@@ -3,7 +3,6 @@ import {
   Bell,
   Building2,
   ChevronDown,
-  Copy,
   DoorClosed,
   DoorOpen,
   HelpCircle,
@@ -15,7 +14,6 @@ import {
   MicOff,
   Minimize2,
   MonitorUp,
-  RefreshCw,
   Search,
   Smile,
   SlidersHorizontal,
@@ -84,6 +82,7 @@ function BasicApp() {
   }
 
   const people = useMemo(() => [...VISIBLE_PEOPLE, ...addedPeople], [addedPeople]);
+  const allPeople = useMemo(() => [...PEOPLE, ...addedPeople], [addedPeople]);
   const statusOptions = useMemo(
     () => [...new Set(people.map((person) => person.status).filter(Boolean))],
     [people]
@@ -101,13 +100,13 @@ function BasicApp() {
     () =>
       ROOMS.map((room) => ({
         ...room,
-        occupants: people.filter(
-          (person) => person.presenceGroup === "space" && person.roomId === room.id
+        occupants: allPeople.filter(
+          (person) => person.roomId === room.id && (person.presenceGroup === "space" || room.id === "river")
         )
       }))
         .filter((room) => room.occupants.length > 0)
         .sort((a, b) => b.occupants.length - a.occupants.length),
-    [people]
+    [allPeople]
   );
 
   const currentRoom = ROOMS.find((room) => room.id === currentUserRoomId) || ROOMS[0];
@@ -117,7 +116,7 @@ function BasicApp() {
   const conversationParticipants = conversation
     ? [...PEOPLE, ...addedPeople].filter((person) => person.roomId === conversation.roomId)
     : [];
-  const currentRoomParticipants = people.filter((person) => person.roomId === currentUserRoomId);
+  const currentRoomParticipants = allPeople.filter((person) => person.roomId === currentUserRoomId);
   const isSoloRoom = currentRoomParticipants.length === 0;
   const roomChatPerson = people.find((person) => person.id === roomChatPersonId) || null;
 
@@ -150,6 +149,13 @@ function BasicApp() {
   function selectRoom(room, focusOnMap = false) {
     if (room.id === currentUserRoomId) {
       openCurrentRoom();
+      return;
+    }
+    if (showConversation) {
+      setRoomChatPersonId(null);
+      setRoomGroupChatOpen(false);
+      setFocusRoomId(room.id);
+      setViewState(conversation ? BASIC_VIEW.MAP_WHILE_IN_CONVERSATION : BASIC_VIEW.MAP);
       return;
     }
     if (focusOnMap) setFocusRoomId(room.id);
@@ -231,14 +237,6 @@ function BasicApp() {
     setRoomGroupChatOpen(true);
   }
 
-  async function copyRoomLink() {
-    try {
-      await navigator.clipboard?.writeText(`${window.location.origin}/basic#${currentRoom.id}`);
-    } catch {
-      // The control is still useful in browsers that do not expose clipboard access.
-    }
-  }
-
   function addUsers(invitations) {
     setAddedPeople((current) => [
       ...current,
@@ -279,18 +277,6 @@ function BasicApp() {
           </button>
         </div>
         <div className="basic-rail-group basic-rail-bottom">
-          <button className={roomDoorOpen ? "" : "active"} type="button" aria-label={roomDoorOpen ? "Close room door" : "Open room door"} title={roomDoorOpen ? "Close room door" : "Open room door"} onClick={() => setRoomDoorOpen((open) => !open)}>
-            {roomDoorOpen ? <DoorOpen size={19} aria-hidden="true" /> : <DoorClosed size={19} aria-hidden="true" />}
-          </button>
-          <button className={screenSharing ? "active" : ""} type="button" aria-label={screenSharing ? "Stop sharing screen" : "Share screen"} title={screenSharing ? "Stop sharing screen" : "Share screen"} onClick={() => setScreenSharing((sharing) => !sharing)}>
-            <MonitorUp size={19} aria-hidden="true" />
-          </button>
-          <button type="button" aria-label="Copy room link" title="Copy room link" onClick={copyRoomLink}>
-            <Copy size={18} aria-hidden="true" />
-          </button>
-          <button type="button" aria-label="Refresh room view" title="Refresh room view" onClick={() => setRoomRefreshKey((key) => key + 1)}>
-            <RefreshCw size={18} aria-hidden="true" />
-          </button>
           <button type="button" aria-label="Help">
             <HelpCircle size={20} aria-hidden="true" />
           </button>
@@ -345,10 +331,15 @@ function BasicApp() {
         <div className="basic-directory-scroll">
           <section className="basic-directory-section basic-current-room-section" aria-labelledby="basic-current-room">
             <div className="basic-current-room-heading">
-              <span><MapPin size={14} aria-hidden="true" /> Your room</span>
-              <div>
+              <div className="basic-current-room-title">
+                <MapPin size={15} aria-hidden="true" />
                 <button type="button" onClick={openCurrentRoom} aria-label={`Open ${currentRoom.name}`}>{currentRoom.name}</button>
-                {!isSoloRoom && <button className="basic-current-room-chat" type="button" aria-label={`Open chat for ${currentRoom.name}`} title="Room chat" onClick={openRoomGroupChat}><MessageCircle size={16} /></button>}
+              </div>
+              <div className="basic-current-room-actions" aria-label={`Actions for ${currentRoom.name}`}>
+                <button className={screenSharing ? "active" : ""} type="button" aria-label={screenSharing ? "Stop sharing screen" : "Share screen"} title={screenSharing ? "Stop sharing screen" : "Share screen"} onClick={() => setScreenSharing((sharing) => !sharing)}><MonitorUp size={15} /></button>
+                <button className={roomDoorOpen ? "" : "active"} type="button" aria-label={roomDoorOpen ? "Close room door" : "Open room door"} title={roomDoorOpen ? "Close room door" : "Open room door"} onClick={() => setRoomDoorOpen((open) => !open)}>{roomDoorOpen ? <DoorOpen size={15} /> : <DoorClosed size={15} />}</button>
+                <button type="button" aria-label="Open meeting mode" title="Meeting mode" onClick={openCurrentRoom}><Video size={15} /></button>
+                {!isSoloRoom && <button className="basic-current-room-chat" type="button" aria-label={`Open chat for ${currentRoom.name}`} title="Room chat" onClick={openRoomGroupChat}><MessageCircle size={15} /></button>}
               </div>
             </div>
             <div className="basic-current-room-summary">
@@ -361,7 +352,6 @@ function BasicApp() {
                   <button type="button" key={person.id} onClick={() => openRoomChat(person)}>
                     <span className="basic-person-avatar">{person.photo ? <img src={person.photo} alt="" referrerPolicy="no-referrer" /> : person.name[0]}</span>
                     <span className="basic-person-copy"><strong>{person.name}</strong></span>
-                    <MessageCircle size={15} aria-hidden="true" />
                   </button>
                 ))}
               </div>
@@ -495,7 +485,7 @@ function BasicApp() {
             />
           )}
 
-          {viewState === BASIC_VIEW.MAP_WHILE_IN_CONVERSATION && currentConversationRoom && (
+          {viewState === BASIC_VIEW.MAP_WHILE_IN_CONVERSATION && currentConversationRoom && conversationParticipants.length > 0 && (
             <ConversationMapStatus room={currentConversationRoom} mode={conversation.mode} onReturn={returnToConversation} />
           )}
 
@@ -518,8 +508,8 @@ function PresenceSwitcher({ room, roomActive, onOpenRoom, onOpenMap }) {
         <span><small>You're in</small><strong>{room.name}</strong></span>
       </button>
       <div className="basic-presence-views" role="group" aria-label="Workspace view">
-        <button className={roomActive ? "active" : ""} type="button" aria-pressed={roomActive} onClick={onOpenRoom}>Room</button>
-        <button className={!roomActive ? "active" : ""} type="button" aria-pressed={!roomActive} onClick={onOpenMap}>Map</button>
+        <button className={roomActive ? "active" : ""} type="button" aria-pressed={roomActive} onClick={onOpenRoom}><DoorOpen size={14} aria-hidden="true" />Room</button>
+        <button className={!roomActive ? "active" : ""} type="button" aria-pressed={!roomActive} onClick={onOpenMap}><MapIcon size={14} aria-hidden="true" />Map</button>
       </div>
     </section>
   );
