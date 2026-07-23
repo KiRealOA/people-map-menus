@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import officeBackdrop from "./assets/katmai-office-backdrop.png";
 import officeBackdropVideo from "./assets/Katmai_Office_bg_01.mp4";
+import basicConversationOffice from "./assets/basic-conversation-office.jpg";
 
 const PERSON_PHOTOS = {
   maya: "https://randomuser.me/api/portraits/women/44.jpg",
@@ -1729,7 +1730,7 @@ function PeopleRosterSection({
   );
 }
 
-function ChatPanel({ person, requestMessages, closing, onClose, onJump, onSummon, onMap }) {
+export function ChatPanel({ person, requestMessages, closing, onClose, onJump, onSummon, onMap }) {
   const thread = getChatThread(person);
   const theme = getChatTheme(person.id);
   const incomingRequest = getIncomingRequest(person.id);
@@ -1891,12 +1892,23 @@ export function MapSurface({
   currentUserRoomId,
   focusPersonId,
   onFocusPersonHandled,
+  focusRoomId,
+  onFocusRoomHandled,
   onMoveToRoom,
   pushToast,
   onJumpRequest,
   embedded = false,
   additionalPeople = [],
-  overlay = null
+  overlay = null,
+  onPersonSelect,
+  onRoomSelect,
+  onRoomAction,
+  hideDetailCards = false,
+  roomDetailsMode = "card",
+  openChatOnPersonSelect = false,
+  suppressChatPanel = false,
+  hideMapAddUsers = false,
+  onChatStateChange
 }) {
   const [hoveredRoomId, setHoveredRoomId] = useState(null);
   const [selectedRoomId, setSelectedRoomId] = useState(null);
@@ -2049,7 +2061,12 @@ export function MapSurface({
     peopleByRoomForMap
   ]);
 
-  const chatPerson = mapPeople.find((person) => person.id === chatPersonId);
+  const chatPerson = suppressChatPanel
+    ? null
+    : mapPeople.find((person) => person.id === chatPersonId);
+  const roomPanelOpen =
+    roomDetailsMode === "panel" && Boolean(selectedRoom) && !hideDetailCards && !radarMode;
+  const sidePanelOpen = Boolean(chatPerson) || roomPanelOpen;
 
   useEffect(() => {
     if (!focusPersonId) return;
@@ -2059,6 +2076,31 @@ export function MapSurface({
     setChatPersonId(person.id);
     onFocusPersonHandled?.();
   }, [focusPersonId, mapPeople, onFocusPersonHandled]);
+
+  useEffect(() => {
+    if (!focusRoomId) return;
+    const room = ROOMS.find((item) => item.id === focusRoomId);
+    if (!room) return;
+    if (chatCloseTimer.current) {
+      window.clearTimeout(chatCloseTimer.current);
+      chatCloseTimer.current = null;
+    }
+    setChatPersonId(null);
+    setChatClosing(false);
+    setSelectedRoomId(room.id);
+    setFocusedRoomId(room.id);
+    setSelectedPersonId(null);
+    const frame = window.requestAnimationFrame(() => {
+      focusMapOnPoint(getShapeCenter(ROOM_SHAPES[room.id]));
+    });
+    onFocusRoomHandled?.();
+    return () => window.cancelAnimationFrame(frame);
+  }, [focusRoomId, onFocusRoomHandled]);
+
+  useEffect(() => {
+    onChatStateChange?.(sidePanelOpen);
+    return () => onChatStateChange?.(false);
+  }, [sidePanelOpen, onChatStateChange]);
 
   useEffect(() => {
     if (!chatPerson) return;
@@ -2101,6 +2143,9 @@ export function MapSurface({
       window.clearTimeout(chatCloseTimer.current);
       chatCloseTimer.current = null;
     }
+    setSelectedRoomId(null);
+    setFocusedRoomId(null);
+    setHoveredRoomId(null);
     setChatClosing(false);
     setChatPersonId(personId);
   }
@@ -2256,6 +2301,11 @@ export function MapSurface({
     setFocusedRoomId(person.roomId);
     setHoveredRoomId(person.roomId);
     focusMapOnPerson(person);
+    onPersonSelect?.(person);
+  }
+
+  function handleRoomAction(room, action) {
+    return onRoomAction?.(room, action) === true;
   }
 
   function addMapUser(event) {
@@ -2377,6 +2427,7 @@ export function MapSurface({
             onSubmitAddUser={addMapUser}
             onCancelAddUser={() => setAddUserOpen(false)}
             onInviteUsers={addMapUsers}
+            hideAddUsers={hideMapAddUsers}
             onSelectPerson={(person) => {
               activatePerson(person);
             }}
@@ -2454,9 +2505,17 @@ export function MapSurface({
           onHover={setHoveredRoomId}
           onSelect={(roomId) => {
             if (radarMode) return;
-            setSelectedRoomId(roomId);
-            setFocusedRoomId(roomId);
-            setSelectedPersonId(null);
+            const room = ROOMS.find((item) => item.id === roomId);
+            // Commit after the stage click has finished bubbling, so an open
+            // room card never clears the next room selection on its first click.
+            window.requestAnimationFrame(() => {
+              setSelectedRoomId(roomId);
+              setFocusedRoomId(roomId);
+              setSelectedPersonId(null);
+              setChatPersonId(null);
+              setChatClosing(false);
+              if (room) onRoomSelect?.(room);
+            });
           }}
         />
 
@@ -2492,6 +2551,10 @@ export function MapSurface({
               ? getClusterMarkerPosition(person.roomId, "above")
                 : undefined
             }
+            onSelect={onPersonSelect ? () => {
+              activatePerson(person);
+              if (openChatOnPersonSelect) openChat(person.id);
+            } : undefined}
           />
         ))}
 
@@ -2502,7 +2565,7 @@ export function MapSurface({
           />
         ))}
 
-        {!radarMode && selectedRoom && (
+        {!radarMode && selectedRoom && !hideDetailCards && roomDetailsMode === "card" && (
           <RoomDetailCard
             room={selectedRoom}
             people={peopleByRoomForMap[selectedRoom.id]}
@@ -2511,9 +2574,15 @@ export function MapSurface({
                 ? "closed"
                 : requestStates[selectedRoom.id]
             }
-            onGo={() => goToRoom(selectedRoom)}
-            onRequest={() => requestJoin(selectedRoom)}
-            onJoin={() => onMoveToRoom(selectedRoom, `Joining ${selectedRoom.name}`)}
+            onGo={() => {
+              if (!handleRoomAction(selectedRoom, "go")) goToRoom(selectedRoom);
+            }}
+            onRequest={() => {
+              if (!handleRoomAction(selectedRoom, "request")) requestJoin(selectedRoom);
+            }}
+            onJoin={() => {
+              if (!handleRoomAction(selectedRoom, "join")) onMoveToRoom(selectedRoom, `Joining ${selectedRoom.name}`);
+            }}
             onSelectPerson={(person) => {
               activatePerson(person);
             }}
@@ -2545,7 +2614,7 @@ export function MapSurface({
   );
 
   const mapContent = (
-    <div className={`map-content ${addUserOpen ? "invite-users-open" : ""} ${chatPerson ? "with-chat" : ""}`}>
+    <div className={`map-content ${addUserOpen ? "invite-users-open" : ""} ${sidePanelOpen ? "with-chat" : ""} ${roomPanelOpen ? "with-room-details" : ""}`}>
       {mapStage}
 
       {chatPerson && (
@@ -2559,6 +2628,42 @@ export function MapSurface({
           onMap={() => {
             activatePerson(chatPerson);
           }}
+        />
+      )}
+
+      {!chatPerson && roomPanelOpen && selectedRoom && (
+        <RoomDetailsPanel
+          room={selectedRoom}
+          people={peopleByRoomForMap[selectedRoom.id]}
+          state={
+            selectedRoom.open === false && peopleByRoomForMap[selectedRoom.id].length > 0
+              ? "closed"
+              : requestStates[selectedRoom.id]
+          }
+          onGo={() => {
+            if (!handleRoomAction(selectedRoom, "go")) goToRoom(selectedRoom);
+          }}
+          onRequest={() => {
+            if (!handleRoomAction(selectedRoom, "request")) requestJoin(selectedRoom);
+          }}
+          onJoin={() => {
+            if (!handleRoomAction(selectedRoom, "join")) onMoveToRoom(selectedRoom, `Joining ${selectedRoom.name}`);
+          }}
+          onSelectPerson={(person) => {
+            activatePerson(person);
+            openChat(person.id);
+          }}
+          onClose={() => {
+            setSelectedRoomId(null);
+            setFocusedRoomId(null);
+            setHoveredRoomId(null);
+          }}
+          onReset={() =>
+            setRequestStates((states) => ({
+              ...states,
+              [selectedRoom.id]: undefined
+            }))
+          }
         />
       )}
     </div>
@@ -2660,7 +2765,8 @@ function MapPersonSearch({
   onEmailAutomaticallyChange,
   onSubmitAddUser,
   onCancelAddUser,
-  onInviteUsers
+  onInviteUsers,
+  hideAddUsers = false
 }) {
   const hasQuery = query.trim().length > 0;
 
@@ -2675,10 +2781,12 @@ function MapPersonSearch({
             placeholder="Find person on map"
           />
         </label>
-        <button className="map-add-users-button" type="button" onClick={onAddUser} aria-expanded={addUserOpen}>
-          <UserPlus size={15} aria-hidden="true" />
-          <span>Add users</span>
-        </button>
+        {!hideAddUsers && (
+          <button className="map-add-users-button" type="button" onClick={onAddUser} aria-expanded={addUserOpen}>
+            <UserPlus size={15} aria-hidden="true" />
+            <span>Add users</span>
+          </button>
+        )}
       </div>
 
       {false && addUserOpen && (
@@ -2861,6 +2969,87 @@ function RoomRegion({ room, people, hovered, focused, selected, interactive, onH
         />
       )}
     </g>
+  );
+}
+
+function RoomDetailsPanel({
+  room,
+  people,
+  state,
+  onGo,
+  onRequest,
+  onJoin,
+  onSelectPerson,
+  onClose,
+  onReset
+}) {
+  const isEmpty = people.length === 0;
+  const isClosed = room.open === false && !isEmpty;
+  const countLabel = isEmpty ? "Empty and available" : people.length === 1 ? "1 person here" : `${people.length} people here`;
+  const roomDescription = room.name.includes("Office")
+    ? "A quieter office for focused conversations and quick one-to-one collaboration."
+    : room.name.includes("Pod")
+    ? "An open pod for lightweight collaboration, drop-ins, and informal conversations."
+    : "A bright shared room for team conversations, working sessions, and spontaneous collaboration.";
+
+  return (
+    <aside className="room-details-panel" aria-label={`${room.name} details`}>
+      <div className="room-details-hero">
+        <img src={basicConversationOffice} alt={`Office view for ${room.name}`} />
+        <div className="room-details-hero-shade" />
+        <IconButton label="Close room details" onClick={onClose}>
+          <X size={18} />
+        </IconButton>
+        <span className={`room-details-status ${isClosed ? "closed" : "open"}`}>
+          <i aria-hidden="true" /> {isClosed ? "Door closed" : "Open room"}
+        </span>
+      </div>
+
+      <div className="room-details-body">
+        <header>
+          <span className="room-details-eyebrow">Katmai office</span>
+          <h2>{room.name}</h2>
+          <p className="room-details-count">{countLabel}</p>
+        </header>
+
+        <p className="room-details-description">{roomDescription}</p>
+
+        <section className="room-details-people" aria-labelledby={`room-people-${room.id}`}>
+          <div className="room-details-section-heading">
+            <h3 id={`room-people-${room.id}`}>People in this room</h3>
+            <span>{people.length}</span>
+          </div>
+
+          {isEmpty ? (
+            <div className="room-details-empty">
+              <DoorOpen size={21} aria-hidden="true" />
+              <div><strong>No one is here yet</strong><span>This room is ready to use.</span></div>
+            </div>
+          ) : (
+            <div className="room-details-roster">
+              {people.map((person) => (
+                <button className="room-details-person" type="button" key={person.id} onClick={() => onSelectPerson(person)}>
+                  <Avatar person={person} size="small" portrait />
+                  <span><strong>{person.name}</strong><small>{person.role || person.status || "Available"}</small></span>
+                  <MessageCircle size={17} aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+
+      <footer className="room-details-footer">
+        <RoomCallToAction
+          isEmpty={isEmpty}
+          state={isClosed ? "closed" : state}
+          onGo={onGo}
+          onRequest={onRequest}
+          onJoin={onJoin}
+          onReset={onReset}
+        />
+      </footer>
+    </aside>
   );
 }
 
@@ -3057,13 +3246,19 @@ function UserMarker({ showPortrait, markerScale, position, radarOnly = false }) 
   );
 }
 
-function PersonMarker({ person, highlighted, dimmed, showPortrait, markerScale, positionOverride }) {
+function PersonMarker({ person, highlighted, dimmed, showPortrait, markerScale, positionOverride, onSelect }) {
   const position = positionOverride || getPersonMarkerPosition(person);
   const targetScale = markerScale * (highlighted ? 1.04 : 1);
 
+  function handleKeyDown(event) {
+    if (!onSelect || (event.key !== "Enter" && event.key !== " ")) return;
+    event.preventDefault();
+    onSelect();
+  }
+
   return (
     <div
-      className={`person-marker ${showPortrait ? "with-portrait" : "name-only"} ${
+      className={`person-marker ${onSelect ? "selectable" : ""} ${showPortrait ? "with-portrait" : "name-only"} ${
         highlighted ? "highlighted" : ""
       } ${
         dimmed ? "dimmed" : ""
@@ -3074,6 +3269,13 @@ function PersonMarker({ person, highlighted, dimmed, showPortrait, markerScale, 
         top: `${(position.y / SVG_HEIGHT) * 100}%`
       }}
       aria-label={`${person.name} on map`}
+      role={onSelect ? "button" : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      onClick={onSelect ? (event) => {
+        event.stopPropagation();
+        onSelect();
+      } : undefined}
+      onKeyDown={handleKeyDown}
     >
       {showPortrait ? (
         <Avatar person={person} size="map" portrait />

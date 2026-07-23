@@ -3,13 +3,19 @@ import {
   Bell,
   Building2,
   ChevronDown,
+  Copy,
+  DoorClosed,
+  DoorOpen,
   HelpCircle,
   Map as MapIcon,
+  MapPin,
   Maximize2,
   MessageCircle,
   Mic,
   MicOff,
   Minimize2,
+  MonitorUp,
+  RefreshCw,
   Search,
   Smile,
   SlidersHorizontal,
@@ -18,10 +24,28 @@ import {
   Video,
   VideoOff
 } from "lucide-react";
-import { CURRENT_USER, InviteUsersModal, MapSurface, PEOPLE, ROOMS } from "./App.jsx";
+import { ChatPanel, InviteUsersModal, MapSurface, PEOPLE, ROOMS } from "./App.jsx";
+import {
+  ConversationBoundary,
+  ConversationMapStatus,
+  DestinationTransition,
+} from "./BasicConversation.jsx";
 import katmaiMenuIcon from "./assets/katmai-menu-icon.svg";
+import videoMutePlaceholder from "./assets/video-mute-placeholder.png";
 
 const VISIBLE_PEOPLE = PEOPLE.filter((person) => person.presenceGroup === "space");
+
+const BASIC_VIEW = Object.freeze({
+  MAP: "map",
+  PERSON_REQUEST_PENDING: "person-request-pending",
+  ROOM_INCOMING_REQUEST: "room-incoming-request",
+  ROOM_VIDEO: "room-video",
+  ROOM_AUDIO: "room-audio",
+  ROOM_SOLO: "room-solo",
+  MAP_WHILE_IN_CONVERSATION: "map-while-in-conversation",
+  LEAVE_CONFIRMATION: "leave-confirmation",
+  DESTINATION_TRANSITION: "destination-transition"
+});
 
 function BasicApp() {
   const [query, setQuery] = useState("");
@@ -30,11 +54,27 @@ function BasicApp() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [addUserOpen, setAddUserOpen] = useState(false);
   const [focusPersonId, setFocusPersonId] = useState(null);
+  const [focusRoomId, setFocusRoomId] = useState(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [roomChatPersonId, setRoomChatPersonId] = useState(null);
+  const [roomGroupChatOpen, setRoomGroupChatOpen] = useState(false);
   const [currentUserRoomId, setCurrentUserRoomId] = useState("south-pod");
+  const [viewState, setViewState] = useState(BASIC_VIEW.MAP);
+  const [conversation, setConversation] = useState(null);
+  const [destination, setDestination] = useState(null);
+  const [roomDoorOpen, setRoomDoorOpen] = useState(true);
+  const [screenSharing, setScreenSharing] = useState(false);
+  const [roomRefreshKey, setRoomRefreshKey] = useState(0);
+  const transitionTimerRef = useRef(null);
+  const confirmationReturnStateRef = useRef(BASIC_VIEW.MAP);
   const [collapsedSections, setCollapsedSections] = useState({
     rooms: false,
     people: false
   });
+
+  useEffect(() => () => {
+    if (transitionTimerRef.current) window.clearTimeout(transitionTimerRef.current);
+  }, []);
 
   function toggleSection(section) {
     setCollapsedSections((current) => ({
@@ -70,6 +110,135 @@ function BasicApp() {
     [people]
   );
 
+  const currentRoom = ROOMS.find((room) => room.id === currentUserRoomId) || ROOMS[0];
+  const currentConversationRoom = conversation
+    ? ROOMS.find((room) => room.id === conversation.roomId)
+    : currentRoom;
+  const conversationParticipants = conversation
+    ? [...PEOPLE, ...addedPeople].filter((person) => person.roomId === conversation.roomId)
+    : [];
+  const currentRoomParticipants = people.filter((person) => person.roomId === currentUserRoomId);
+  const isSoloRoom = currentRoomParticipants.length === 0;
+  const roomChatPerson = people.find((person) => person.id === roomChatPersonId) || null;
+
+  const conversationViews = new Set([
+    BASIC_VIEW.ROOM_VIDEO,
+    BASIC_VIEW.ROOM_AUDIO,
+    BASIC_VIEW.ROOM_SOLO
+  ]);
+  const showConversation = conversationViews.has(viewState) || (
+    viewState === BASIC_VIEW.LEAVE_CONFIRMATION &&
+    confirmationReturnStateRef.current !== BASIC_VIEW.MAP_WHILE_IN_CONVERSATION
+  );
+
+  function roomOccupants(roomId) {
+    return [...PEOPLE, ...addedPeople].filter((person) => person.roomId === roomId);
+  }
+
+  function resetMapSelection() {
+    setDestination(null);
+  }
+
+  function selectPerson(person) {
+    if (conversation) {
+      confirmationReturnStateRef.current = viewState;
+      setDestination({ type: "person", person });
+      setViewState(BASIC_VIEW.LEAVE_CONFIRMATION);
+    }
+  }
+
+  function selectRoom(room, focusOnMap = false) {
+    if (room.id === currentUserRoomId) {
+      openCurrentRoom();
+      return;
+    }
+    if (focusOnMap) setFocusRoomId(room.id);
+  }
+
+  function enterConversation(room, preferredMode = "video") {
+    const solo = roomOccupants(room.id).length === 0;
+    setCurrentUserRoomId(room.id);
+    setConversation({ roomId: room.id, mode: preferredMode });
+    setRoomChatPersonId(null);
+    setRoomGroupChatOpen(false);
+    setDestination(null);
+    setViewState(solo ? BASIC_VIEW.ROOM_SOLO : preferredMode === "audio" ? BASIC_VIEW.ROOM_AUDIO : BASIC_VIEW.ROOM_VIDEO);
+  }
+
+  function openCurrentRoom() {
+    const preferredMode = conversation?.mode === "audio" ? "audio" : "video";
+    const solo = currentRoomParticipants.length === 0;
+    setConversation({ roomId: currentUserRoomId, mode: preferredMode });
+    setDestination(null);
+    setViewState(solo ? BASIC_VIEW.ROOM_SOLO : preferredMode === "audio" ? BASIC_VIEW.ROOM_AUDIO : BASIC_VIEW.ROOM_VIDEO);
+  }
+
+  function beginDestinationTransition(target) {
+    setDestination(target);
+    setViewState(BASIC_VIEW.DESTINATION_TRANSITION);
+    if (transitionTimerRef.current) window.clearTimeout(transitionTimerRef.current);
+    transitionTimerRef.current = window.setTimeout(() => {
+      if (target.type === "person") {
+        setConversation(null);
+        setFocusPersonId(target.person.id);
+        setDestination(null);
+        setViewState(BASIC_VIEW.MAP);
+        return;
+      }
+      const previousMode = conversation?.mode === "audio" ? "audio" : "video";
+      enterConversation(target.room, previousMode);
+    }, 650);
+  }
+
+  function openMapDuringConversation() {
+    resetMapSelection();
+    setViewState(BASIC_VIEW.MAP_WHILE_IN_CONVERSATION);
+  }
+
+  function returnToConversation() {
+    if (!conversation) return;
+    setViewState(conversationParticipants.length === 0 ? BASIC_VIEW.ROOM_SOLO : conversation.mode === "audio" ? BASIC_VIEW.ROOM_AUDIO : BASIC_VIEW.ROOM_VIDEO);
+  }
+
+  function changeConversationMode(mode) {
+    setConversation((current) => current ? { ...current, mode } : current);
+    setViewState(mode === "audio" ? BASIC_VIEW.ROOM_AUDIO : BASIC_VIEW.ROOM_VIDEO);
+  }
+
+  function leaveConversation() {
+    openMapDuringConversation();
+  }
+
+  function handleMapRoomMove(room) {
+    beginDestinationTransition({ type: "room", room });
+  }
+
+  function handleMapRoomAction(room, action) {
+    if (action === "go" || action === "join") {
+      beginDestinationTransition({ type: "room", room });
+      return true;
+    }
+    return false;
+  }
+
+  function openRoomChat(person) {
+    setRoomGroupChatOpen(false);
+    setRoomChatPersonId(person.id);
+  }
+
+  function openRoomGroupChat() {
+    setRoomChatPersonId(null);
+    setRoomGroupChatOpen(true);
+  }
+
+  async function copyRoomLink() {
+    try {
+      await navigator.clipboard?.writeText(`${window.location.origin}/basic#${currentRoom.id}`);
+    } catch {
+      // The control is still useful in browsers that do not expose clipboard access.
+    }
+  }
+
   function addUsers(invitations) {
     setAddedPeople((current) => [
       ...current,
@@ -84,6 +253,10 @@ function BasicApp() {
     ]);
     setAddUserOpen(false);
   }
+
+  const destinationLabel = destination?.type === "person"
+    ? destination.person.name
+    : destination?.room.name;
 
   return (
     <main className="basic-shell">
@@ -106,6 +279,18 @@ function BasicApp() {
           </button>
         </div>
         <div className="basic-rail-group basic-rail-bottom">
+          <button className={roomDoorOpen ? "" : "active"} type="button" aria-label={roomDoorOpen ? "Close room door" : "Open room door"} title={roomDoorOpen ? "Close room door" : "Open room door"} onClick={() => setRoomDoorOpen((open) => !open)}>
+            {roomDoorOpen ? <DoorOpen size={19} aria-hidden="true" /> : <DoorClosed size={19} aria-hidden="true" />}
+          </button>
+          <button className={screenSharing ? "active" : ""} type="button" aria-label={screenSharing ? "Stop sharing screen" : "Share screen"} title={screenSharing ? "Stop sharing screen" : "Share screen"} onClick={() => setScreenSharing((sharing) => !sharing)}>
+            <MonitorUp size={19} aria-hidden="true" />
+          </button>
+          <button type="button" aria-label="Copy room link" title="Copy room link" onClick={copyRoomLink}>
+            <Copy size={18} aria-hidden="true" />
+          </button>
+          <button type="button" aria-label="Refresh room view" title="Refresh room view" onClick={() => setRoomRefreshKey((key) => key + 1)}>
+            <RefreshCw size={18} aria-hidden="true" />
+          </button>
           <button type="button" aria-label="Help">
             <HelpCircle size={20} aria-hidden="true" />
           </button>
@@ -158,6 +343,31 @@ function BasicApp() {
         </div>
 
         <div className="basic-directory-scroll">
+          <section className="basic-directory-section basic-current-room-section" aria-labelledby="basic-current-room">
+            <div className="basic-current-room-heading">
+              <span><MapPin size={14} aria-hidden="true" /> Your room</span>
+              <div>
+                <button type="button" onClick={openCurrentRoom} aria-label={`Open ${currentRoom.name}`}>{currentRoom.name}</button>
+                {!isSoloRoom && <button className="basic-current-room-chat" type="button" aria-label={`Open chat for ${currentRoom.name}`} title="Room chat" onClick={openRoomGroupChat}><MessageCircle size={16} /></button>}
+              </div>
+            </div>
+            <div className="basic-current-room-summary">
+              <span className={`basic-room-door ${roomDoorOpen ? "open" : "closed"}`}>{roomDoorOpen ? "Open" : "Closed"}</span>
+              <small>{isSoloRoom ? "You're here by yourself" : `${currentRoomParticipants.length + 1} people in room`}</small>
+            </div>
+            {!isSoloRoom && (
+              <div className="basic-person-list basic-current-room-list" aria-label={`People in ${currentRoom.name}`}>
+                {currentRoomParticipants.map((person) => (
+                  <button type="button" key={person.id} onClick={() => openRoomChat(person)}>
+                    <span className="basic-person-avatar">{person.photo ? <img src={person.photo} alt="" referrerPolicy="no-referrer" /> : person.name[0]}</span>
+                    <span className="basic-person-copy"><strong>{person.name}</strong></span>
+                    <MessageCircle size={15} aria-hidden="true" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </section>
+
           <section className="basic-directory-section" aria-labelledby="basic-active-rooms">
             <button
               className="basic-section-heading"
@@ -173,14 +383,14 @@ function BasicApp() {
             {!collapsedSections.rooms && (
               <div className="basic-room-list" id="basic-active-room-list">
                 {activeRooms.map((room) => (
-                  <div className="basic-room-row" key={room.id}>
+                  <button className="basic-room-row" type="button" key={room.id} onClick={() => selectRoom(room, true)}>
                     <span className="basic-room-icon"><Building2 size={15} aria-hidden="true" /></span>
                     <span>
                       <strong>{room.name}</strong>
                       <small>{room.occupants.map((person) => person.name.split(" ")[0]).join(", ")}</small>
                     </span>
                     <b>{room.occupants.length}</b>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
@@ -203,9 +413,9 @@ function BasicApp() {
                 {filteredPeople.map((person) => (
                   <button
                     type="button"
-                    className={focusPersonId === person.id ? "selected" : ""}
+                    className=""
                     key={person.id}
-                    onClick={() => setFocusPersonId(person.id)}
+                    onClick={() => showConversation ? openRoomChat(person) : setFocusPersonId(person.id)}
                   >
                     <span className="basic-person-avatar">
                       {person.photo ? <img src={person.photo} alt="" referrerPolicy="no-referrer" /> : person.name[0]}
@@ -225,35 +435,152 @@ function BasicApp() {
       <InviteUsersModal open={addUserOpen} onClose={() => setAddUserOpen(false)} onInvite={addUsers} />
 
       <section className="basic-workspace" aria-label="Katmai Basic workspace">
-        <MapSurface
-          activeSurface="map"
-          expanded
-          embedded
-          currentUserRoomId={currentUserRoomId}
-          focusPersonId={focusPersonId}
-          onFocusPersonHandled={() => {}}
-          additionalPeople={addedPeople}
-          overlay={<ConfidenceMonitor />}
-          onMoveToRoom={(room) => setCurrentUserRoomId(room.id)}
-          pushToast={() => {}}
-          onJumpRequest={(_person, onResult) =>
-            onResult({ status: "accepted", room: ROOMS.find((room) => room.id === currentUserRoomId) })
-          }
-        />
+        <div className="basic-workspace-stage">
+          {showConversation && currentConversationRoom ? (
+            <ConversationBoundary
+              room={currentConversationRoom}
+              participants={conversationParticipants}
+              mode={conversation?.mode === "audio" ? "audio" : "video"}
+              solo={conversationParticipants.length === 0}
+              onModeChange={changeConversationMode}
+              onOpenMap={openMapDuringConversation}
+              onSummon={openMapDuringConversation}
+              refreshKey={roomRefreshKey}
+            />
+          ) : (
+            <MapSurface
+              activeSurface="map"
+              expanded
+              embedded
+              currentUserRoomId={currentUserRoomId}
+              focusPersonId={focusPersonId}
+              onFocusPersonHandled={() => setFocusPersonId(null)}
+              focusRoomId={focusRoomId}
+              onFocusRoomHandled={() => setFocusRoomId(null)}
+              additionalPeople={addedPeople}
+              onMoveToRoom={handleMapRoomMove}
+              onRoomSelect={selectRoom}
+              onRoomAction={handleMapRoomAction}
+              onChatStateChange={setChatOpen}
+              roomDetailsMode="panel"
+              openChatOnPersonSelect
+              hideMapAddUsers
+              pushToast={() => {}}
+              onJumpRequest={(_person, onResult) => {
+                window.setTimeout(() => onResult({ status: "accepted", room: ROOMS.find((room) => room.id === currentUserRoomId) }), 650);
+              }}
+            />
+          )}
+
+          <PresenceSwitcher
+            room={currentRoom}
+            roomActive={showConversation}
+            onOpenRoom={openCurrentRoom}
+            onOpenMap={() => conversation ? openMapDuringConversation() : setViewState(BASIC_VIEW.MAP)}
+          />
+
+          {showConversation && roomGroupChatOpen && (
+            <RoomGroupChatPanel
+              room={currentRoom}
+              participants={currentRoomParticipants}
+              onClose={() => setRoomGroupChatOpen(false)}
+            />
+          )}
+
+          {showConversation && !roomGroupChatOpen && roomChatPerson && (
+            <RoomChatPanel
+              person={roomChatPerson}
+              onClose={() => setRoomChatPersonId(null)}
+              onOpenMap={openMapDuringConversation}
+            />
+          )}
+
+          {viewState === BASIC_VIEW.MAP_WHILE_IN_CONVERSATION && currentConversationRoom && (
+            <ConversationMapStatus room={currentConversationRoom} mode={conversation.mode} onReturn={returnToConversation} />
+          )}
+
+          {viewState === BASIC_VIEW.DESTINATION_TRANSITION && destination && (
+            <DestinationTransition destination={destinationLabel} />
+          )}
+
+          <ConfidenceMonitor chatOpen={chatOpen || (showConversation && (Boolean(roomChatPerson) || roomGroupChatOpen))} />
+        </div>
       </section>
     </main>
   );
 }
 
+function PresenceSwitcher({ room, roomActive, onOpenRoom, onOpenMap }) {
+  return (
+    <section className="basic-presence-switcher" aria-label="Your room and workspace view">
+      <button className="basic-presence-location" type="button" onClick={onOpenRoom}>
+        <MapPin size={17} aria-hidden="true" />
+        <span><small>You're in</small><strong>{room.name}</strong></span>
+      </button>
+      <div className="basic-presence-views" role="group" aria-label="Workspace view">
+        <button className={roomActive ? "active" : ""} type="button" aria-pressed={roomActive} onClick={onOpenRoom}>Room</button>
+        <button className={!roomActive ? "active" : ""} type="button" aria-pressed={!roomActive} onClick={onOpenMap}>Map</button>
+      </div>
+    </section>
+  );
+}
+
+function RoomChatPanel({ person, onClose, onOpenMap }) {
+  return (
+    <div className="basic-room-chat-panel">
+      <ChatPanel
+        person={person}
+        requestMessages={[]}
+        closing={false}
+        onClose={onClose}
+        onJump={onOpenMap}
+        onSummon={onOpenMap}
+        onMap={onOpenMap}
+      />
+    </div>
+  );
+}
+
+function RoomGroupChatPanel({ room, participants, onClose }) {
+  const speaker = participants[0];
+  const responder = participants[1];
+
+  return (
+    <aside className="basic-room-chat-panel basic-room-group-chat" aria-label={`Chat with ${room.name}`}>
+      <header className="basic-room-group-chat-heading">
+        <div>
+          <span className="basic-room-group-chat-icon"><MessageCircle size={17} /></span>
+          <div><small>Room chat</small><strong>{room.name}</strong></div>
+        </div>
+        <button type="button" aria-label="Close room chat" title="Close room chat" onClick={onClose}>×</button>
+      </header>
+      <div className="basic-room-group-members" aria-label="People in this room">
+        {participants.map((person) => <span key={person.id} title={person.name}>{person.photo ? <img src={person.photo} alt="" referrerPolicy="no-referrer" /> : person.name[0]}</span>)}
+        <small>{participants.length + 1} in this room</small>
+      </div>
+      <div className="basic-room-group-thread">
+        {speaker && <div className="basic-room-group-message incoming"><small>{speaker.name} · 10:38 AM</small><p>Glad we’re all here. Let’s align on the next step.</p></div>}
+        {responder && <div className="basic-room-group-message incoming"><small>{responder.name} · 10:40 AM</small><p>I’ve added the latest notes to the shared board.</p></div>}
+        <div className="basic-room-group-message outgoing"><small>You · 10:41 AM</small><p>Perfect — I’m reviewing them now.</p></div>
+      </div>
+      <label className="basic-room-group-composer">
+        <input placeholder={`Message everyone in ${room.name}`} />
+        <button type="button" aria-label="Send room message">↗</button>
+      </label>
+    </aside>
+  );
+}
+
 const REACTIONS = ["🙂", "👋", "🎉", "❤️"];
 
-function ConfidenceMonitor() {
+function ConfidenceMonitor({ chatOpen = false }) {
   const monitorRef = useRef(null);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const dragRef = useRef(null);
   const reactionTimerRef = useRef(null);
   const [position, setPosition] = useState(null);
+  const [chatDockRight, setChatDockRight] = useState(null);
   const [minimized, setMinimized] = useState(false);
   const [videoEnabled, setVideoEnabled] = useState(false);
   const [micEnabled, setMicEnabled] = useState(false);
@@ -262,6 +589,7 @@ function ConfidenceMonitor() {
   const [reactionOpen, setReactionOpen] = useState(false);
   const [reaction, setReaction] = useState("");
   const [dragging, setDragging] = useState(false);
+  const [hasCollapsed, setHasCollapsed] = useState(false);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -279,7 +607,7 @@ function ConfidenceMonitor() {
     if (!position) return;
     const frame = window.requestAnimationFrame(() => {
       const monitor = monitorRef.current;
-      const boundary = monitor?.closest(".map-stage");
+      const boundary = monitor?.closest(".basic-workspace-stage, .map-stage");
       if (!monitor || !boundary) return;
       setPosition((current) => current ? {
         x: Math.min(current.x, Math.max(8, boundary.clientWidth - monitor.offsetWidth - 8)),
@@ -288,6 +616,28 @@ function ConfidenceMonitor() {
     });
     return () => window.cancelAnimationFrame(frame);
   }, [minimized]);
+
+  useEffect(() => {
+    if (position || !chatOpen) {
+      setChatDockRight(null);
+      return;
+    }
+
+    const monitor = monitorRef.current;
+    const boundary = monitor?.closest(".basic-workspace-stage");
+    const protectedPanel = boundary?.querySelector(".basic-map-boundary .map-stage, .basic-room-chat-panel");
+    if (!boundary || !protectedPanel) return;
+
+    const updateDock = () => {
+      const boundaryRect = boundary.getBoundingClientRect();
+      const panelRect = protectedPanel.getBoundingClientRect();
+      setChatDockRight(Math.max(8, boundaryRect.right - panelRect.left + 18));
+    };
+
+    updateDock();
+    window.addEventListener("resize", updateDock);
+    return () => window.removeEventListener("resize", updateDock);
+  }, [chatOpen, position]);
 
   async function enableMedia(kind) {
     setMediaError("");
@@ -342,11 +692,19 @@ function ConfidenceMonitor() {
     reactionTimerRef.current = window.setTimeout(() => setReaction(""), 1800);
   }
 
+  function minimizeMonitor() {
+    if (!hasCollapsed) {
+      setPosition(null);
+      setHasCollapsed(true);
+    }
+    setMinimized(true);
+  }
+
   function handlePointerDown(event) {
     event.stopPropagation();
     if (event.button !== 0 || event.target.closest("button")) return;
     const monitor = monitorRef.current;
-    const boundary = monitor?.closest(".map-stage");
+    const boundary = monitor?.closest(".basic-workspace-stage, .map-stage");
     if (!monitor || !boundary) return;
     const monitorRect = monitor.getBoundingClientRect();
     dragRef.current = {
@@ -367,7 +725,7 @@ function ConfidenceMonitor() {
   function updateDragPosition(clientX, clientY, drag = dragRef.current) {
     if (!drag) return;
     const monitor = monitorRef.current;
-    const boundary = monitor?.closest(".map-stage");
+    const boundary = monitor?.closest(".basic-workspace-stage, .map-stage");
     if (!monitor || !boundary) return;
     const boundaryRect = boundary.getBoundingClientRect();
     setPosition({
@@ -380,7 +738,7 @@ function ConfidenceMonitor() {
     event.stopPropagation();
     if (event.button !== 0 || event.target.closest("button")) return;
     const monitor = monitorRef.current;
-    const boundary = monitor?.closest(".map-stage");
+    const boundary = monitor?.closest(".basic-workspace-stage, .map-stage");
     if (!monitor || !boundary) return;
     const monitorRect = monitor.getBoundingClientRect();
     const drag = {
@@ -414,12 +772,16 @@ function ConfidenceMonitor() {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   }
 
-  const monitorStyle = position ? { left: position.x, top: position.y, right: "auto" } : undefined;
+  const monitorStyle = position
+    ? { left: position.x, top: position.y, right: "auto" }
+    : chatDockRight === null
+      ? undefined
+      : { right: chatDockRight };
 
   return (
     <section
       ref={monitorRef}
-      className={`confidence-monitor ${minimized ? "minimized" : "expanded"} ${dragging ? "dragging" : ""}`}
+      className={`confidence-monitor ${minimized ? "minimized" : "expanded"} ${dragging ? "dragging" : ""} ${micEnabled ? "" : "mic-off"}`}
       style={monitorStyle}
       aria-label="Your camera and microphone"
       onClick={(event) => event.stopPropagation()}
@@ -445,9 +807,9 @@ function ConfidenceMonitor() {
         <>
           <div className="confidence-video-ring">
             <video ref={videoRef} className={videoEnabled ? "" : "hidden"} autoPlay muted playsInline />
-            {!videoEnabled && <img src={CURRENT_USER.photo} alt="Your camera is off" referrerPolicy="no-referrer" />}
+            {!videoEnabled && <img src={videoMutePlaceholder} alt="Your camera is off" />}
           </div>
-          <button className="confidence-minimize" type="button" aria-label="Minimize confidence monitor" title="Minimize" onClick={() => setMinimized(true)}><Minimize2 size={18} /></button>
+          <button className="confidence-minimize" type="button" aria-label="Minimize confidence monitor" title="Minimize" onClick={minimizeMonitor}><Minimize2 size={18} /></button>
           <div className="confidence-controls">
             <ConfidenceReactionButton open={reactionOpen} onToggle={() => setReactionOpen((open) => !open)} onReact={sendReaction} />
             <button className={`confidence-control ${micEnabled ? "" : "off"}`} type="button" aria-label={micEnabled ? "Mute microphone" : "Unmute microphone"} title={micEnabled ? "Mute" : "Unmute"} onClick={toggleMic}>{micEnabled ? <Mic size={19} /> : <MicOff size={19} />}</button>
