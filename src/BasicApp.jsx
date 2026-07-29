@@ -1,20 +1,31 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Bell,
-  Building2,
+  Boxes,
+  Cast,
   ChevronDown,
-  DoorClosed,
+  CircleHelp,
+  Clock,
   DoorOpen,
   HelpCircle,
+  Headphones,
+  GraduationCap,
+  Grid2X2Plus,
   Map as MapIcon,
   MapPin,
-  Maximize2,
   MessageCircle,
   Mic,
   MicOff,
   Minimize2,
-  MonitorUp,
+  MoreHorizontal,
+  Lock,
+  LockOpen,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Palette,
+  RefreshCw,
   Search,
+  Settings,
+  MapPinned,
   Smile,
   SlidersHorizontal,
   UserPlus,
@@ -29,6 +40,8 @@ import {
   DestinationTransition,
 } from "./BasicConversation.jsx";
 import katmaiMenuIcon from "./assets/katmai-menu-icon.svg";
+import roomIcon from "./assets/room-icon.svg";
+import exitMeetingIcon from "./assets/exit-meeting.svg";
 import videoMutePlaceholder from "./assets/video-mute-placeholder.png";
 
 const VISIBLE_PEOPLE = PEOPLE.filter((person) => person.presenceGroup === "space");
@@ -62,8 +75,30 @@ function BasicApp() {
   const [destination, setDestination] = useState(null);
   const [roomDoorOpen, setRoomDoorOpen] = useState(true);
   const [screenSharing, setScreenSharing] = useState(false);
+  const [selfViewMode, setSelfViewMode] = useState("floating");
+  const [selfMedia, setSelfMedia] = useState({ videoEnabled: false, stream: null });
+  const [activeSidebarSelection, setActiveSidebarSelection] = useState(null);
+  const [sidebarTab, setSidebarTab] = useState("people");
+  const [officeHoursActive, setOfficeHoursActive] = useState(false);
+  const [hideLobbyNames, setHideLobbyNames] = useState(false);
+  const [videoInput, setVideoInput] = useState("integrated-camera");
+  const [audioInput, setAudioInput] = useState("default-microphone");
+  const [audioOutput, setAudioOutput] = useState("default-speakers");
+  const [graphicsMode, setGraphicsMode] = useState("balanced");
+  const [basicPreferences, setBasicPreferences] = useState({
+    doubleClickToMove: true,
+    autoMeetingMode: false,
+    auto2DMode: true,
+    joystick: false,
+    backgroundBlur: true,
+    noiseReduction: true
+  });
+  const [helpfulHintsHidden, setHelpfulHintsHidden] = useState(false);
+  const [leaveToast, setLeaveToast] = useState(null);
   const [roomRefreshKey, setRoomRefreshKey] = useState(0);
+  const [directoryCollapsed, setDirectoryCollapsed] = useState(false);
   const transitionTimerRef = useRef(null);
+  const leaveToastTimerRef = useRef(null);
   const confirmationReturnStateRef = useRef(BASIC_VIEW.MAP);
   const [collapsedSections, setCollapsedSections] = useState({
     rooms: false,
@@ -72,6 +107,7 @@ function BasicApp() {
 
   useEffect(() => () => {
     if (transitionTimerRef.current) window.clearTimeout(transitionTimerRef.current);
+    if (leaveToastTimerRef.current) window.clearTimeout(leaveToastTimerRef.current);
   }, []);
 
   function toggleSection(section) {
@@ -80,6 +116,23 @@ function BasicApp() {
       [section]: !current[section]
     }));
   }
+
+  function toggleBasicPreference(preference) {
+    setBasicPreferences((current) => ({
+      ...current,
+      [preference]: !current[preference]
+    }));
+  }
+
+  function openSidebarTab(tab) {
+    setSidebarTab(tab);
+    setDirectoryCollapsed(false);
+  }
+
+  const handleMapChatStateChange = useCallback((selection) => {
+    setChatOpen(Boolean(selection));
+    setActiveSidebarSelection(selection || null);
+  }, []);
 
   const people = useMemo(() => [...VISIBLE_PEOPLE, ...addedPeople], [addedPeople]);
   const allPeople = useMemo(() => [...PEOPLE, ...addedPeople], [addedPeople]);
@@ -98,15 +151,19 @@ function BasicApp() {
 
   const activeRooms = useMemo(
     () =>
-      ROOMS.map((room) => ({
-        ...room,
-        occupants: allPeople.filter(
+      ROOMS.map((room) => {
+        const occupants = allPeople.filter(
           (person) => person.roomId === room.id && (person.presenceGroup === "space" || room.id === "river")
-        )
-      }))
-        .filter((room) => room.occupants.length > 0)
-        .sort((a, b) => b.occupants.length - a.occupants.length),
-    [allPeople]
+        );
+        return {
+          ...room,
+          occupants,
+          peopleCount: occupants.length + (room.id === currentUserRoomId ? 1 : 0)
+        };
+      })
+        .filter((room) => room.peopleCount >= 2)
+        .sort((a, b) => b.peopleCount - a.peopleCount),
+    [allPeople, currentUserRoomId]
   );
 
   const currentRoom = ROOMS.find((room) => room.id === currentUserRoomId) || ROOMS[0];
@@ -118,7 +175,8 @@ function BasicApp() {
     : [];
   const currentRoomParticipants = allPeople.filter((person) => person.roomId === currentUserRoomId);
   const isSoloRoom = currentRoomParticipants.length === 0;
-  const roomChatPerson = people.find((person) => person.id === roomChatPersonId) || null;
+  const roomChatPerson = allPeople.find((person) => person.id === roomChatPersonId) || null;
+  const officeHoursHosts = [PEOPLE[0], PEOPLE[4]].filter(Boolean);
 
   const conversationViews = new Set([
     BASIC_VIEW.ROOM_VIDEO,
@@ -179,6 +237,46 @@ function BasicApp() {
     setViewState(solo ? BASIC_VIEW.ROOM_SOLO : preferredMode === "audio" ? BASIC_VIEW.ROOM_AUDIO : BASIC_VIEW.ROOM_VIDEO);
   }
 
+  function leaveCurrentRoom() {
+    const emptyRooms = ROOMS.filter(
+      (room) => room.id !== currentUserRoomId && roomOccupants(room.id).length === 0
+    );
+    if (emptyRooms.length === 0) return;
+    const previousRoom = currentRoom;
+    const previousState = {
+      roomId: currentUserRoomId,
+      conversation: conversation ? { ...conversation } : null,
+      viewState,
+      roomDoorOpen
+    };
+    const destinationRoom = emptyRooms[Math.floor(Math.random() * emptyRooms.length)];
+    setScreenSharing(false);
+    setChatOpen(false);
+    setActiveSidebarSelection(null);
+    enterConversation(destinationRoom, conversation?.mode === "audio" ? "audio" : "video");
+    setLeaveToast({ roomName: previousRoom.name, previousState });
+    if (leaveToastTimerRef.current) window.clearTimeout(leaveToastTimerRef.current);
+    leaveToastTimerRef.current = window.setTimeout(() => {
+      setLeaveToast(null);
+      leaveToastTimerRef.current = null;
+    }, 5000);
+  }
+
+  function returnToLeftRoom() {
+    if (!leaveToast) return;
+    const { previousState } = leaveToast;
+    if (leaveToastTimerRef.current) window.clearTimeout(leaveToastTimerRef.current);
+    leaveToastTimerRef.current = null;
+    setCurrentUserRoomId(previousState.roomId);
+    setConversation(previousState.conversation);
+    setViewState(previousState.viewState);
+    setRoomDoorOpen(previousState.roomDoorOpen);
+    setRoomChatPersonId(null);
+    setRoomGroupChatOpen(false);
+    setDestination(null);
+    setLeaveToast(null);
+  }
+
   function beginDestinationTransition(target) {
     setDestination(target);
     setViewState(BASIC_VIEW.DESTINATION_TRANSITION);
@@ -230,11 +328,22 @@ function BasicApp() {
   function openRoomChat(person) {
     setRoomGroupChatOpen(false);
     setRoomChatPersonId(person.id);
+    setActiveSidebarSelection({ type: "person", id: person.id });
   }
 
   function openRoomGroupChat() {
     setRoomChatPersonId(null);
     setRoomGroupChatOpen(true);
+    setActiveSidebarSelection({ type: "room", id: currentUserRoomId });
+  }
+
+  function toggleRoomGroupChat() {
+    if (roomGroupChatOpen) {
+      setRoomGroupChatOpen(false);
+      setActiveSidebarSelection(null);
+      return;
+    }
+    openRoomGroupChat();
   }
 
   function addUsers(invitations) {
@@ -257,42 +366,56 @@ function BasicApp() {
     : destination?.room.name;
 
   return (
-    <main className="basic-shell">
+    <main className={`basic-shell ${directoryCollapsed ? "basic-shell-directory-collapsed" : ""}`}>
       <nav className="basic-rail" aria-label="Katmai Basic navigation">
-        <a className="basic-mark" href="/" aria-label="Open Users Map">
+        <button
+          className="basic-mark"
+          type="button"
+          aria-label={directoryCollapsed ? "Expand people and active rooms sidebar" : "Collapse people and active rooms sidebar"}
+          title={directoryCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          onClick={() => setDirectoryCollapsed((collapsed) => !collapsed)}
+        >
           <img src={katmaiMenuIcon} alt="" />
-        </a>
+          <span className="basic-mark-toggle-icon" aria-hidden="true">
+            {directoryCollapsed ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />}
+          </span>
+        </button>
         <div className="basic-rail-group">
-          <button className="active" type="button" aria-label="People and rooms">
+          <button className={!directoryCollapsed && sidebarTab === "people" ? "active" : ""} type="button" aria-label="People and rooms" onClick={() => openSidebarTab("people")}>
             <Users size={20} aria-hidden="true" />
           </button>
-          <button type="button" aria-label="Map">
-            <MapIcon size={20} aria-hidden="true" />
+          <button className={!directoryCollapsed && sidebarTab === "office-hours" ? "active" : ""} type="button" aria-label="Office Hours" onClick={() => openSidebarTab("office-hours")}>
+            <Clock size={20} aria-hidden="true" />
           </button>
-          <button type="button" aria-label="Messages">
-            <MessageCircle size={20} aria-hidden="true" />
+          <button className={!directoryCollapsed && sidebarTab === "settings" ? "active" : ""} type="button" aria-label="Settings" onClick={() => openSidebarTab("settings")}>
+            <Settings size={20} aria-hidden="true" />
           </button>
-          <button type="button" aria-label="Notifications">
-            <Bell size={20} aria-hidden="true" />
+          <button className={!directoryCollapsed && sidebarTab === "help" ? "active" : ""} type="button" aria-label="Help" onClick={() => openSidebarTab("help")}>
+            <HelpCircle size={20} aria-hidden="true" />
           </button>
         </div>
         <div className="basic-rail-group basic-rail-bottom">
-          <button type="button" aria-label="Help">
-            <HelpCircle size={20} aria-hidden="true" />
+          <button type="button" aria-label="Refresh session" title="Refresh session" onClick={() => window.location.reload()}>
+            <RefreshCw size={20} aria-hidden="true" />
           </button>
         </div>
       </nav>
 
-      <aside className="basic-directory" aria-label="People and active rooms">
-        <header className="basic-directory-heading">
-          <div>
-            <span>Katmai Basic</span>
-            <h1>People</h1>
-          </div>
-          <span className="basic-online-count">{people.length} online</span>
-        </header>
+      <aside className={`basic-directory ${directoryCollapsed ? "basic-directory-collapsed" : ""}`} aria-label={`${sidebarTab} sidebar`}>
+        {!directoryCollapsed && (
+          <>
+            <header className="basic-directory-heading">
+              <div>
+                <span>Katmai Basic</span>
+                <h1>{sidebarTab === "people" ? "People" : sidebarTab === "office-hours" ? "Office Hours" : sidebarTab === "settings" ? "Settings" : "Help"}</h1>
+              </div>
+              {sidebarTab === "people" && <div className="basic-directory-heading-actions">
+                <span className="basic-online-count">{people.length} online</span>
+              </div>}
+            </header>
 
-        <div className="basic-search-toolbar">
+            {sidebarTab === "people" && <>
+            <div className="basic-search-toolbar">
           <label className="basic-search">
             <Search size={17} aria-hidden="true" />
             <input
@@ -326,20 +449,19 @@ function BasicApp() {
               </div>
             )}
           </div>
-        </div>
+            </div>
 
-        <div className="basic-directory-scroll">
-          <section className="basic-directory-section basic-current-room-section" aria-labelledby="basic-current-room">
+          <section className={`basic-directory-section basic-current-room-section basic-current-room-pinned ${roomDoorOpen ? "" : "closed"} ${activeSidebarSelection?.type === "room" && activeSidebarSelection.id === currentUserRoomId ? "selected" : ""}`} aria-labelledby="basic-current-room">
             <div className="basic-current-room-heading">
               <div className="basic-current-room-title">
                 <MapPin size={15} aria-hidden="true" />
                 <button type="button" onClick={openCurrentRoom} aria-label={`Open ${currentRoom.name}`}>{currentRoom.name}</button>
               </div>
               <div className="basic-current-room-actions" aria-label={`Actions for ${currentRoom.name}`}>
-                <button className={screenSharing ? "active" : ""} type="button" aria-label={screenSharing ? "Stop sharing screen" : "Share screen"} title={screenSharing ? "Stop sharing screen" : "Share screen"} onClick={() => setScreenSharing((sharing) => !sharing)}><MonitorUp size={15} /></button>
-                <button className={roomDoorOpen ? "" : "active"} type="button" aria-label={roomDoorOpen ? "Close room door" : "Open room door"} title={roomDoorOpen ? "Close room door" : "Open room door"} onClick={() => setRoomDoorOpen((open) => !open)}>{roomDoorOpen ? <DoorOpen size={15} /> : <DoorClosed size={15} />}</button>
-                <button type="button" aria-label="Open meeting mode" title="Meeting mode" onClick={openCurrentRoom}><Video size={15} /></button>
-                {!isSoloRoom && <button className="basic-current-room-chat" type="button" aria-label={`Open chat for ${currentRoom.name}`} title="Room chat" onClick={openRoomGroupChat}><MessageCircle size={15} /></button>}
+                <button className={`basic-room-door-action ${roomDoorOpen ? "" : "active"}`} type="button" aria-label={roomDoorOpen ? "Close room door" : "Open room door"} title={roomDoorOpen ? "Close room door" : "Open room door"} onClick={() => setRoomDoorOpen((open) => !open)}>
+                  {roomDoorOpen ? <LockOpen size={15} /> : <Lock size={15} />}
+                  <span>{roomDoorOpen ? "Close Door" : "Open Door"}</span>
+                </button>
               </div>
             </div>
             <div className="basic-current-room-summary">
@@ -349,7 +471,7 @@ function BasicApp() {
             {!isSoloRoom && (
               <div className="basic-person-list basic-current-room-list" aria-label={`People in ${currentRoom.name}`}>
                 {currentRoomParticipants.map((person) => (
-                  <button type="button" key={person.id} onClick={() => openRoomChat(person)}>
+                  <button className={activeSidebarSelection?.type === "person" && activeSidebarSelection.id === person.id ? "selected" : ""} type="button" key={person.id} onClick={() => openRoomChat(person)}>
                     <span className="basic-person-avatar">{person.photo ? <img src={person.photo} alt="" referrerPolicy="no-referrer" /> : person.name[0]}</span>
                     <span className="basic-person-copy"><strong>{person.name}</strong></span>
                   </button>
@@ -358,6 +480,7 @@ function BasicApp() {
             )}
           </section>
 
+            <div className="basic-directory-scroll">
           <section className="basic-directory-section" aria-labelledby="basic-active-rooms">
             <button
               className="basic-section-heading"
@@ -372,16 +495,22 @@ function BasicApp() {
             </button>
             {!collapsedSections.rooms && (
               <div className="basic-room-list" id="basic-active-room-list">
-                {activeRooms.map((room) => (
-                  <button className="basic-room-row" type="button" key={room.id} onClick={() => selectRoom(room, true)}>
-                    <span className="basic-room-icon"><Building2 size={15} aria-hidden="true" /></span>
-                    <span>
-                      <strong>{room.name}</strong>
-                      <small>{room.occupants.map((person) => person.name.split(" ")[0]).join(", ")}</small>
-                    </span>
-                    <b>{room.occupants.length}</b>
-                  </button>
-                ))}
+                {activeRooms.map((room) => {
+                  const isClosed = currentUserRoomId === room.id ? !roomDoorOpen : room.open === false;
+                  return (
+                    <button className={`basic-room-row ${isClosed ? "closed" : ""} ${activeSidebarSelection?.type === "room" && activeSidebarSelection.id === room.id ? "selected" : ""} ${currentUserRoomId === room.id ? "current" : ""}`} type="button" key={room.id} onClick={() => selectRoom(room, true)}>
+                      <span className={`basic-room-icon ${isClosed ? "closed" : ""}`} title={isClosed ? "Closed room" : "Open room"}>
+                        {isClosed ? <Lock size={15} aria-label="Closed room" /> : <img src={roomIcon} alt="" aria-hidden="true" />}
+                      </span>
+                      <span>
+                        <strong>{room.name}</strong>
+                        <small>{room.occupants.map((person) => person.name.split(" ")[0]).join(", ")}</small>
+                      </span>
+                      {currentUserRoomId === room.id && <span className="basic-room-current-indicator" aria-label="You are here">You</span>}
+                      <b>{room.peopleCount}</b>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </section>
@@ -403,7 +532,13 @@ function BasicApp() {
                 {filteredPeople.map((person) => (
                   <button
                     type="button"
-                    className=""
+                    className={
+                      activeSidebarSelection?.type === "person" &&
+                      activeSidebarSelection.id === person.id &&
+                      !currentRoomParticipants.some((participant) => participant.id === person.id)
+                        ? "selected"
+                        : ""
+                    }
                     key={person.id}
                     onClick={() => showConversation ? openRoomChat(person) : setFocusPersonId(person.id)}
                   >
@@ -419,13 +554,143 @@ function BasicApp() {
               </div>
             )}
           </section>
-        </div>
+            </div>
+            </>}
+            {sidebarTab === "office-hours" && (
+              <div className="basic-side-panel">
+                <button className={`basic-primary-cta ${officeHoursActive ? "active" : ""}`} type="button" onClick={() => setOfficeHoursActive((active) => !active)}>
+                  <Clock size={17} aria-hidden="true" />
+                  {officeHoursActive ? "End Office Hours" : "Start Office Hours"}
+                </button>
+
+                <section className="basic-side-section basic-start-own-section">
+                  <h2>Start your own</h2>
+                  <p>Want to make yourself available for drop-ins? Start Office Hours to let others know you're open to chat. Everyone in the office will get a notification that you’ve started.</p>
+                  <div className="basic-setting-row">
+                    <div><strong>Hide names in lobby</strong><p>Replace participant names with initials for people waiting to join. Only you will see who's in line.</p></div>
+                    <button className={`basic-toggle ${hideLobbyNames ? "active" : ""}`} type="button" role="switch" aria-checked={hideLobbyNames} aria-label="Hide names in lobby" onClick={() => setHideLobbyNames((hidden) => !hidden)}><span /></button>
+                  </div>
+                </section>
+
+                <section className="basic-side-section">
+                  <h2>Available Hosts</h2>
+                  <p>These team members are currently hosting Office Hours. Join their queue for a quick 1:1 conversation.</p>
+                  <div className="basic-host-list">
+                    {officeHoursHosts.map((host, index) => (
+                      <button type="button" key={host.id} className="basic-host-row">
+                        <span className="basic-person-avatar">{host.photo ? <img src={host.photo} alt="" referrerPolicy="no-referrer" /> : host.name[0]}</span>
+                        <span><strong>{host.name}</strong><small>{index === 0 ? "2 people in queue" : "1 person in queue"}</small></span>
+                        <span className="basic-queue-pill">Join</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+              </div>
+            )}
+            {sidebarTab === "settings" && (
+              <div className="basic-side-panel">
+                <div className="basic-settings-actions">
+                  <button type="button"><Palette size={16} aria-hidden="true" />Brand your space</button>
+                  <button type="button"><Boxes size={16} aria-hidden="true" />Switch your architecture</button>
+                  <button type="button"><MapPinned size={16} aria-hidden="true" />Switch Location</button>
+                </div>
+                <section className="basic-side-section basic-settings-group">
+                  <h2>Devices</h2>
+                  <label className="basic-select-setting">
+                    <span><Video size={16} aria-hidden="true" /><strong>Video input</strong></span>
+                    <select aria-label="Video input" value={videoInput} onChange={(event) => setVideoInput(event.target.value)}>
+                      <option value="integrated-camera">Integrated Camera</option>
+                      <option value="external-camera">External USB Camera</option>
+                      <option value="virtual-camera">Virtual Camera</option>
+                    </select>
+                  </label>
+                  <label className="basic-select-setting">
+                    <span><Mic size={16} aria-hidden="true" /><strong>Audio input</strong></span>
+                    <select aria-label="Audio input" value={audioInput} onChange={(event) => setAudioInput(event.target.value)}>
+                      <option value="default-microphone">Default — Microphone</option>
+                      <option value="headset-microphone">Headset Microphone</option>
+                      <option value="external-microphone">External Microphone</option>
+                    </select>
+                  </label>
+                  <label className="basic-select-setting">
+                    <span><Headphones size={16} aria-hidden="true" /><strong>Audio output</strong></span>
+                    <select aria-label="Audio output" value={audioOutput} onChange={(event) => setAudioOutput(event.target.value)}>
+                      <option value="default-speakers">Default — Speakers</option>
+                      <option value="headphones">Headphones</option>
+                      <option value="display-audio">Display Audio</option>
+                    </select>
+                  </label>
+                </section>
+                <section className="basic-side-section basic-settings-group">
+                  <h2>Graphics</h2>
+                  <label className="basic-select-setting">
+                    <span><SlidersHorizontal size={16} aria-hidden="true" /><strong>Graphics quality</strong></span>
+                    <select aria-label="Graphics quality" value={graphicsMode} onChange={(event) => setGraphicsMode(event.target.value)}>
+                      <option value="safe">Safe mode</option>
+                      <option value="efficient">Efficient</option>
+                      <option value="balanced">Balanced</option>
+                      <option value="enhanced">Enhanced</option>
+                    </select>
+                  </label>
+                </section>
+                <section className="basic-side-section basic-settings-group">
+                  <h2>Experience</h2>
+                  {[
+                    ["doubleClickToMove", "Double click to move"],
+                    ["autoMeetingMode", "Auto Meeting Mode"],
+                    ["auto2DMode", "Auto 2D mode"],
+                    ["joystick", "Joystick"],
+                    ["backgroundBlur", "Background Blur"],
+                    ["noiseReduction", "Noise Reduction"]
+                  ].map(([preference, label]) => (
+                    <div className="basic-setting-row basic-setting-row-compact" key={preference}>
+                      <strong>{label}</strong>
+                      <button
+                        className={`basic-toggle ${basicPreferences[preference] ? "active" : ""}`}
+                        type="button"
+                        role="switch"
+                        aria-checked={basicPreferences[preference]}
+                        aria-label={label}
+                        onClick={() => toggleBasicPreference(preference)}
+                      >
+                        <span />
+                      </button>
+                    </div>
+                  ))}
+                </section>
+                <section className="basic-side-section basic-settings-group basic-helpful-hints-section">
+                  <div className="basic-hint-setting">
+                    <h2>Helpful Hints</h2>
+                    <div>
+                      <button type="button" onClick={() => setHelpfulHintsHidden((hidden) => !hidden)}>{helpfulHintsHidden ? "Show" : "Hide"}</button>
+                      <button type="button" onClick={() => setHelpfulHintsHidden(false)}>Restart</button>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            )}
+            {sidebarTab === "help" && (
+              <div className="basic-side-panel">
+                <div className="basic-settings-actions">
+                  <button type="button"><GraduationCap size={16} aria-hidden="true" />Tutorial</button>
+                  <button type="button"><CircleHelp size={16} aria-hidden="true" />Help Center</button>
+                  <button type="button"><Headphones size={16} aria-hidden="true" />Contact support</button>
+                </div>
+                <section className="basic-side-section basic-shortcuts-section">
+                  <h2>Shortcuts</h2>
+                  {[['Moving', 'Z'], ['Jump', 'Space'], ['Move faster', 'Shift'], ['Sleep Mode', 'Z'], ['Turn off camera', 'V'], ['Turn off microphone', 'M'], ['Hide self view', 'C'], ['Meeting mode', 'Alt', 'V']].map(([label, ...keys]) => <div className="basic-shortcut-row" key={label}><span>{label}</span><span>{keys.map((key) => <kbd key={key}>{key}</kbd>)}</span></div>)}
+                </section>
+              </div>
+            )}
+          </>
+        )}
       </aside>
 
       <InviteUsersModal open={addUserOpen} onClose={() => setAddUserOpen(false)} onInvite={addUsers} />
 
       <section className="basic-workspace" aria-label="Katmai Basic workspace">
-        <div className="basic-workspace-stage">
+        <div className={`basic-workspace-stage ${chatOpen || roomGroupChatOpen || (showConversation && Boolean(roomChatPerson)) ? "right-panel-open" : ""}`}>
           {showConversation && currentConversationRoom ? (
             <ConversationBoundary
               room={currentConversationRoom}
@@ -436,6 +701,13 @@ function BasicApp() {
               onOpenMap={openMapDuringConversation}
               onSummon={openMapDuringConversation}
               refreshKey={roomRefreshKey}
+              selfView={selfViewMode === "grid" ? {
+                videoEnabled: selfMedia.videoEnabled,
+                stream: selfMedia.stream,
+                placeholder: videoMutePlaceholder,
+                onRemove: () => setSelfViewMode("floating"),
+                onMinimize: () => setSelfViewMode("minimized")
+              } : null}
             />
           ) : (
             <MapSurface
@@ -451,10 +723,11 @@ function BasicApp() {
               onMoveToRoom={handleMapRoomMove}
               onRoomSelect={selectRoom}
               onRoomAction={handleMapRoomAction}
-              onChatStateChange={setChatOpen}
+              onChatStateChange={handleMapChatStateChange}
               roomDetailsMode="panel"
               openChatOnPersonSelect
               hideMapAddUsers
+              hideMapSearch
               pushToast={() => {}}
               onJumpRequest={(_person, onResult) => {
                 window.setTimeout(() => onResult({ status: "accepted", room: ROOMS.find((room) => room.id === currentUserRoomId) }), 650);
@@ -462,25 +735,49 @@ function BasicApp() {
             />
           )}
 
-          <PresenceSwitcher
-            room={currentRoom}
-            roomActive={showConversation}
-            onOpenRoom={openCurrentRoom}
-            onOpenMap={() => conversation ? openMapDuringConversation() : setViewState(BASIC_VIEW.MAP)}
-          />
+          <ConfidenceMonitor
+            chatOpen={chatOpen || (showConversation && (Boolean(roomChatPerson) || roomGroupChatOpen))}
+            screenSharing={screenSharing}
+            onToggleScreenSharing={() => setScreenSharing((sharing) => !sharing)}
+            roomChatOpen={roomGroupChatOpen}
+            canOpenRoomChat={!isSoloRoom}
+            onToggleRoomChat={toggleRoomGroupChat}
+            canLeaveRoom={currentRoomParticipants.length > 0}
+            onLeaveRoom={leaveCurrentRoom}
+            viewMode={selfViewMode}
+            onViewModeChange={setSelfViewMode}
+            onMediaStateChange={setSelfMedia}
+            gridVisible={showConversation}
+          >
+            {({ selfPreview }) => (
+              <PresenceSwitcher
+                room={currentRoom}
+                roomActive={showConversation}
+                selfPreview={selfPreview}
+                onOpenRoom={openCurrentRoom}
+                onOpenMap={() => conversation ? openMapDuringConversation() : setViewState(BASIC_VIEW.MAP)}
+              />
+            )}
+          </ConfidenceMonitor>
 
-          {showConversation && roomGroupChatOpen && (
+          {roomGroupChatOpen && (
             <RoomGroupChatPanel
               room={currentRoom}
               participants={currentRoomParticipants}
-              onClose={() => setRoomGroupChatOpen(false)}
+              onClose={() => {
+                setRoomGroupChatOpen(false);
+                setActiveSidebarSelection(null);
+              }}
             />
           )}
 
           {showConversation && !roomGroupChatOpen && roomChatPerson && (
             <RoomChatPanel
               person={roomChatPerson}
-              onClose={() => setRoomChatPersonId(null)}
+              onClose={() => {
+                setRoomChatPersonId(null);
+                setActiveSidebarSelection(null);
+              }}
               onOpenMap={openMapDuringConversation}
             />
           )}
@@ -493,16 +790,23 @@ function BasicApp() {
             <DestinationTransition destination={destinationLabel} />
           )}
 
-          <ConfidenceMonitor chatOpen={chatOpen || (showConversation && (Boolean(roomChatPerson) || roomGroupChatOpen))} />
+          {leaveToast && (
+            <div className="basic-leave-room-toast" role="status">
+              <span>You left <strong>{leaveToast.roomName}</strong></span>
+              <button type="button" onClick={returnToLeftRoom}>Return</button>
+            </div>
+          )}
+
         </div>
       </section>
     </main>
   );
 }
 
-function PresenceSwitcher({ room, roomActive, onOpenRoom, onOpenMap }) {
+function PresenceSwitcher({ room, roomActive, selfPreview, onOpenRoom, onOpenMap }) {
   return (
-    <section className="basic-presence-switcher" aria-label="Your room and workspace view">
+    <section className={`basic-presence-switcher ${selfPreview ? "with-self-preview" : ""}`} aria-label="Your room and workspace view">
+      {selfPreview}
       <button className="basic-presence-location" type="button" onClick={onOpenRoom}>
         <MapPin size={17} aria-hidden="true" />
         <span><small>You're in</small><strong>{room.name}</strong></span>
@@ -563,15 +867,31 @@ function RoomGroupChatPanel({ room, participants, onClose }) {
 
 const REACTIONS = ["🙂", "👋", "🎉", "❤️"];
 
-function ConfidenceMonitor({ chatOpen = false }) {
+function ConfidenceMonitor({
+  chatOpen = false,
+  screenSharing = false,
+  onToggleScreenSharing,
+  roomChatOpen = false,
+  canOpenRoomChat = false,
+  onToggleRoomChat,
+  canLeaveRoom = false,
+  onLeaveRoom,
+  viewMode = "floating",
+  onViewModeChange,
+  onMediaStateChange,
+  gridVisible = false,
+  children
+}) {
   const monitorRef = useRef(null);
-  const videoRef = useRef(null);
+  const expandedVideoRef = useRef(null);
+  const compactVideoRef = useRef(null);
+  const hoverVideoRef = useRef(null);
   const streamRef = useRef(null);
   const dragRef = useRef(null);
   const reactionTimerRef = useRef(null);
   const [position, setPosition] = useState(null);
   const [chatDockRight, setChatDockRight] = useState(null);
-  const [minimized, setMinimized] = useState(false);
+  const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const [videoEnabled, setVideoEnabled] = useState(false);
   const [micEnabled, setMicEnabled] = useState(false);
   const [streamVersion, setStreamVersion] = useState(0);
@@ -579,19 +899,29 @@ function ConfidenceMonitor({ chatOpen = false }) {
   const [reactionOpen, setReactionOpen] = useState(false);
   const [reaction, setReaction] = useState("");
   const [dragging, setDragging] = useState(false);
-  const [hasCollapsed, setHasCollapsed] = useState(false);
+  const minimized = viewMode === "minimized";
+  const floatingVisible = viewMode === "floating" || (viewMode === "grid" && !gridVisible);
 
   useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    video.srcObject = streamRef.current;
-    if (videoEnabled) video.play().catch(() => {});
-  }, [streamVersion, videoEnabled, minimized]);
+    [expandedVideoRef.current, compactVideoRef.current, hoverVideoRef.current]
+      .filter(Boolean)
+      .forEach((video) => {
+        video.srcObject = streamRef.current;
+        if (videoEnabled) video.play().catch(() => {});
+      });
+  }, [streamVersion, videoEnabled, minimized, floatingVisible]);
 
   useEffect(() => () => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     if (reactionTimerRef.current) window.clearTimeout(reactionTimerRef.current);
   }, []);
+
+  useEffect(() => {
+    onMediaStateChange?.({
+      videoEnabled,
+      stream: streamRef.current
+    });
+  }, [videoEnabled, streamVersion, onMediaStateChange]);
 
   useEffect(() => {
     if (!position) return;
@@ -615,7 +945,9 @@ function ConfidenceMonitor({ chatOpen = false }) {
 
     const monitor = monitorRef.current;
     const boundary = monitor?.closest(".basic-workspace-stage");
-    const protectedPanel = boundary?.querySelector(".basic-map-boundary .map-stage, .basic-room-chat-panel");
+    const protectedPanel = boundary?.querySelector(
+      ".basic-map-boundary .chat-panel, .basic-map-boundary .room-details-panel, .basic-room-chat-panel"
+    );
     if (!boundary || !protectedPanel) return;
 
     const updateDock = () => {
@@ -626,8 +958,14 @@ function ConfidenceMonitor({ chatOpen = false }) {
 
     updateDock();
     window.addEventListener("resize", updateDock);
-    return () => window.removeEventListener("resize", updateDock);
-  }, [chatOpen, position]);
+    protectedPanel.addEventListener("animationend", updateDock);
+    const settleTimer = window.setTimeout(updateDock, 260);
+    return () => {
+      window.removeEventListener("resize", updateDock);
+      protectedPanel.removeEventListener("animationend", updateDock);
+      window.clearTimeout(settleTimer);
+    };
+  }, [chatOpen, position, minimized]);
 
   async function enableMedia(kind) {
     setMediaError("");
@@ -683,11 +1021,15 @@ function ConfidenceMonitor({ chatOpen = false }) {
   }
 
   function minimizeMonitor() {
-    if (!hasCollapsed) {
-      setPosition(null);
-      setHasCollapsed(true);
-    }
-    setMinimized(true);
+    setPosition(null);
+    setViewMenuOpen(false);
+    onViewModeChange?.("minimized");
+  }
+
+  function showMonitorInGrid() {
+    setPosition(null);
+    setViewMenuOpen(false);
+    onViewModeChange?.("grid");
   }
 
   function handlePointerDown(event) {
@@ -768,47 +1110,73 @@ function ConfidenceMonitor({ chatOpen = false }) {
       ? undefined
       : { right: chatDockRight };
 
-  return (
-    <section
-      ref={monitorRef}
-      className={`confidence-monitor ${minimized ? "minimized" : "expanded"} ${dragging ? "dragging" : ""} ${micEnabled ? "" : "mic-off"}`}
-      style={monitorStyle}
-      aria-label="Your camera and microphone"
-      onClick={(event) => event.stopPropagation()}
-      onMouseDown={handleMouseDown}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerEnd}
-      onPointerCancel={handlePointerEnd}
-    >
-      {reaction && <div className="confidence-reaction-burst" role="status">{reaction}</div>}
+  const selfPreview = minimized ? (
+    <div className="confidence-card-preview-wrap">
+      <button className={`confidence-card-preview ${videoEnabled ? "camera-on" : ""}`} type="button" aria-label="Expand self view" title="Expand self view" onClick={() => onViewModeChange?.("floating")}>
+        <video ref={compactVideoRef} className={videoEnabled ? "" : "hidden"} autoPlay muted playsInline />
+        {!videoEnabled && <img src={videoMutePlaceholder} alt="" />}
+      </button>
+      <div className="confidence-hover-preview" role="tooltip" aria-label="Large self preview">
+        <video ref={hoverVideoRef} className={videoEnabled ? "" : "hidden"} autoPlay muted playsInline />
+        {!videoEnabled && <img src={videoMutePlaceholder} alt="Your camera is off" />}
+        <small>Your self view</small>
+      </div>
+    </div>
+  ) : null;
 
-      {minimized ? (
-        <>
-          <span className="confidence-compact-handle" aria-hidden="true" />
-          <div className="confidence-compact-controls">
-            <button className="confidence-expand" type="button" aria-label="Expand confidence monitor" title="Expand" onClick={() => setMinimized(false)}><Maximize2 size={19} /></button>
-            <ConfidenceReactionButton open={reactionOpen} onToggle={() => setReactionOpen((open) => !open)} onReact={sendReaction} />
-            <button className={`confidence-control ${micEnabled ? "" : "off"}`} type="button" aria-label={micEnabled ? "Mute microphone" : "Unmute microphone"} title={micEnabled ? "Mute" : "Unmute"} onClick={toggleMic}>{micEnabled ? <Mic size={19} /> : <MicOff size={19} />}</button>
-            <button className={`confidence-control ${videoEnabled ? "" : "off"}`} type="button" aria-label={videoEnabled ? "Turn camera off" : "Turn camera on"} title={videoEnabled ? "Camera off" : "Camera on"} onClick={toggleVideo}>{videoEnabled ? <Video size={19} /> : <VideoOff size={19} />}</button>
-          </div>
-        </>
-      ) : (
-        <>
+  return (
+    <>
+      {typeof children === "function" ? children({ selfPreview }) : children}
+
+      {floatingVisible && (
+        <section
+          ref={monitorRef}
+          className={`confidence-monitor expanded ${dragging ? "dragging" : ""} ${micEnabled ? "" : "mic-off"}`}
+          style={monitorStyle}
+          aria-label="Your expanded self view"
+          onClick={(event) => event.stopPropagation()}
+          onMouseDown={handleMouseDown}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerEnd}
+          onPointerCancel={handlePointerEnd}
+        >
           <div className="confidence-video-ring">
-            <video ref={videoRef} className={videoEnabled ? "" : "hidden"} autoPlay muted playsInline />
+            <video ref={expandedVideoRef} className={videoEnabled ? "" : "hidden"} autoPlay muted playsInline />
             {!videoEnabled && <img src={videoMutePlaceholder} alt="Your camera is off" />}
           </div>
-          <button className="confidence-minimize" type="button" aria-label="Minimize confidence monitor" title="Minimize" onClick={minimizeMonitor}><Minimize2 size={18} /></button>
-          <div className="confidence-controls">
-            <ConfidenceReactionButton open={reactionOpen} onToggle={() => setReactionOpen((open) => !open)} onReact={sendReaction} />
-            <button className={`confidence-control ${micEnabled ? "" : "off"}`} type="button" aria-label={micEnabled ? "Mute microphone" : "Unmute microphone"} title={micEnabled ? "Mute" : "Unmute"} onClick={toggleMic}>{micEnabled ? <Mic size={19} /> : <MicOff size={19} />}</button>
-            <button className={`confidence-control ${videoEnabled ? "" : "off"}`} type="button" aria-label={videoEnabled ? "Turn camera off" : "Turn camera on"} title={videoEnabled ? "Camera off" : "Camera on"} onClick={toggleVideo}>{videoEnabled ? <Video size={19} /> : <VideoOff size={19} />}</button>
+          <div className="confidence-view-options">
+            <button
+              className="confidence-minimize"
+              type="button"
+              aria-label="Self view options"
+              title="Self view options"
+              aria-expanded={viewMenuOpen}
+              onClick={() => setViewMenuOpen((open) => !open)}
+            >
+              <MoreHorizontal size={19} />
+            </button>
+            {viewMenuOpen && (
+              <div className="confidence-view-menu" role="menu" aria-label="Self view options">
+                <button type="button" role="menuitem" onClick={showMonitorInGrid}><Grid2X2Plus size={16} aria-hidden="true" />Show in a grid</button>
+                <button type="button" role="menuitem" onClick={minimizeMonitor}><Minimize2 size={15} />Minimize</button>
+              </div>
+            )}
           </div>
-        </>
+        </section>
       )}
-      {mediaError && <p className="confidence-media-error" role="alert">{mediaError}</p>}
-    </section>
+
+      <div className="confidence-call-dock" aria-label="Call controls">
+        {reaction && <div className="confidence-reaction-burst" role="status">{reaction}</div>}
+        <ConfidenceReactionButton open={reactionOpen} onToggle={() => setReactionOpen((open) => !open)} onReact={sendReaction} />
+        <button className={`confidence-control ${micEnabled ? "" : "off"}`} type="button" aria-label={micEnabled ? "Mute microphone" : "Unmute microphone"} title={micEnabled ? "Mute" : "Unmute"} onClick={toggleMic}>{micEnabled ? <Mic size={19} /> : <MicOff size={19} />}</button>
+        <button className={`confidence-control ${videoEnabled ? "" : "off"}`} type="button" aria-label={videoEnabled ? "Turn camera off" : "Turn camera on"} title={videoEnabled ? "Camera off" : "Camera on"} onClick={toggleVideo}>{videoEnabled ? <Video size={19} /> : <VideoOff size={19} />}</button>
+        <button className={`confidence-control ${screenSharing ? "active" : ""}`} type="button" aria-pressed={screenSharing} aria-label={screenSharing ? "Stop sharing screen" : "Share screen"} title={screenSharing ? "Stop sharing screen" : "Share screen"} onClick={onToggleScreenSharing}><Cast size={19} /></button>
+        {canOpenRoomChat && <button className={`confidence-control ${roomChatOpen ? "active" : ""}`} type="button" aria-pressed={roomChatOpen} aria-label={roomChatOpen ? "Close room chat" : "Open room chat"} title="Room chat" onClick={onToggleRoomChat}><MessageCircle size={19} /></button>}
+        {canLeaveRoom && <button className="confidence-control leave-room" type="button" aria-label="Leave room" title="Leave room" onClick={onLeaveRoom}><img src={exitMeetingIcon} alt="" aria-hidden="true" /></button>}
+        {mediaError && <p className="confidence-media-error" role="alert">{mediaError}</p>}
+      </div>
+    </>
   );
 }
 

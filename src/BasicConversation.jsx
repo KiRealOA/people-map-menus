@@ -1,23 +1,35 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
+  BellRing,
   Check,
+  Copy,
   Clock3,
   DoorOpen,
   Grid2X2,
   Headphones,
-  Map as MapIcon,
   Mic,
+  Minimize2,
+  MoreHorizontal,
   Navigation,
   UserPlus,
   X
 } from "lucide-react";
-import emptyOfficeBackground from "./assets/basic-conversation-office.jpg";
+import { getRoomBackground } from "./roomBackgrounds.js";
+import honeycombIcon from "./assets/honeycomb-icon.svg";
 import peerAFeed from "./assets/peer-a.mp4";
 import peerBFeed from "./assets/peer-b.mp4";
 import peerCFeed from "./assets/peer-c.mp4";
+import peerDFeed from "./assets/peer-d.mp4";
+import peerEFeed from "./assets/peer-e.mp4";
+import peerAStill from "./assets/peer-a-still.jpg";
+import peerBStill from "./assets/peer-b-still.jpg";
+import peerCStill from "./assets/peer-c-still.jpg";
+import peerDStill from "./assets/peer-d-still.jpg";
+import peerEStill from "./assets/peer-e-still.jpg";
 
-const conversationFeeds = [peerAFeed, peerBFeed, peerCFeed];
+const conversationFeeds = [peerAFeed, peerBFeed, peerCFeed, peerDFeed, peerEFeed];
+const conversationStills = [peerAStill, peerBStill, peerCStill, peerDStill, peerEStill];
 
 export function ConversationBoundary({
   room,
@@ -27,11 +39,26 @@ export function ConversationBoundary({
   onModeChange,
   onOpenMap,
   onSummon,
-  refreshKey
+  refreshKey,
+  selfView
 }) {
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  async function copyRoomLink() {
+    const url = new URL(window.location.href);
+    url.searchParams.set("room", room.id);
+    try {
+      await navigator.clipboard.writeText(url.toString());
+      setLinkCopied(true);
+      window.setTimeout(() => setLinkCopied(false), 1800);
+    } catch {
+      setLinkCopied(false);
+    }
+  }
+
   return (
-    <section className={`basic-conversation-stage ${solo ? "solo" : mode}`} aria-label={`${room.name} conversation`} key={refreshKey}>
-      <img className="basic-conversation-backdrop" src={emptyOfficeBackground} alt="" />
+    <section className={`basic-conversation-stage ${solo && !selfView ? "solo" : mode}`} aria-label={`${room.name} conversation`} key={refreshKey}>
+      <img className="basic-conversation-backdrop" src={getRoomBackground(room.id)} alt="" />
       <div className="basic-conversation-scrim" />
 
       <header className="basic-conversation-header">
@@ -39,36 +66,40 @@ export function ConversationBoundary({
           {!solo && (
             <div className="basic-mode-switch" aria-label="Conversation mode">
               <button className={mode === "video" ? "active" : ""} type="button" aria-pressed={mode === "video"} onClick={() => onModeChange("video")}>
-                <Grid2X2 size={16} /> 2D
+                <img className="honeycomb-mode-icon" src={honeycombIcon} alt="" /> 2D
               </button>
               <button className={mode === "audio" ? "active" : ""} type="button" aria-pressed={mode === "audio"} onClick={() => onModeChange("audio")}>
-                <Headphones size={17} /> Audio only
+                <Mic size={17} /> Audio only
               </button>
             </div>
           )}
         </div>
       </header>
 
-      {solo ? (
+      {solo && !selfView ? (
         <div className="basic-empty-room-card">
           <span className="basic-empty-room-icon"><DoorOpen size={30} /></span>
-          <h3>You're here by yourself</h3>
-          <p>Still office backdrop. People appear here when they join.</p>
+          <h3>It’s just you here</h3>
+          <p>Send this link to someone to start a meeting.</p>
           <div className="basic-solo-actions">
-            <button className="primary" type="button" aria-label="Summon someone" title="Summon someone" onClick={onSummon}><UserPlus size={18} /></button>
-            <button type="button" aria-label="Open map" title="Open map" onClick={onOpenMap}><MapIcon size={18} /></button>
+            <button className="primary" type="button" aria-label={linkCopied ? "Link copied" : "Copy room link"} title={linkCopied ? "Link copied" : "Copy room link"} onClick={copyRoomLink}>{linkCopied ? <Check size={18} /> : <Copy size={18} />}{linkCopied ? "Copied!" : "Copy link"}</button>
           </div>
         </div>
       ) : (
-        <div className={`basic-honeycomb ${mode} count-${Math.min(participants.length, 7)}`} aria-label={`${mode === "video" ? "Video" : "Audio"} participants`}>
-          {participants.slice(0, 7).map((participant, index) => (
+        <div className={`basic-honeycomb ${mode} count-${Math.min(participants.length + (selfView ? 1 : 0), 7)}`} aria-label={`${mode === "video" ? "Video" : "Audio"} participants`}>
+          {selfView && <SelfGridParticipant mode={mode} selfView={selfView} />}
+          {participants.slice(0, selfView ? 6 : 7).map((participant, index) => (
             <article className={`basic-honeycomb-person ${index === 0 ? "current" : ""} ${mode === "audio" && index === 1 ? "speaking" : ""}`} key={participant.id}>
               <div className="basic-honeycomb-avatar">
                 {participant.photo ? (
                   mode === "video" ? (
                     <video src={conversationFeeds[index % conversationFeeds.length]} autoPlay loop muted playsInline aria-label={`${participant.name}'s video feed`} />
                   ) : (
-                    <img src={participant.photo} alt="" referrerPolicy="no-referrer" />
+                    <img
+                      src={conversationStills[index % conversationStills.length]}
+                      alt=""
+                      aria-hidden="true"
+                    />
                   )
                 ) : (
                   <span style={{ background: `linear-gradient(145deg, ${participant.palette?.[1] || "#8c52ff"}, ${participant.palette?.[2] || "#4300b5"})` }}>
@@ -77,18 +108,62 @@ export function ConversationBoundary({
                 )}
                 {mode === "audio" && (
                   <span className="basic-audio-indicator" aria-label={index === 1 ? "Speaking" : "Microphone active"}>
-                    <Mic size={15} />
-                    <i /><i /><i />
+                    <Mic size={20} aria-hidden="true" />
                   </span>
                 )}
               </div>
               <strong>{participant.id === "you" ? "You" : participant.name.split(" ")[0]}</strong>
-              {mode === "audio" && <small>{index === 1 ? "Speaking" : "Listening"}</small>}
             </article>
           ))}
         </div>
       )}
     </section>
+  );
+}
+
+function SelfGridParticipant({ mode, selfView }) {
+  const videoRef = useRef(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    video.srcObject = selfView.stream;
+    if (selfView.videoEnabled && selfView.stream) video.play().catch(() => {});
+  }, [selfView.stream, selfView.videoEnabled]);
+
+  return (
+    <article className="basic-honeycomb-person current self-view-in-grid">
+      <div className="basic-honeycomb-avatar">
+        <video ref={videoRef} className={selfView.videoEnabled ? "" : "hidden"} autoPlay muted playsInline aria-label="Your video feed" />
+        {!selfView.videoEnabled && <img src={selfView.placeholder} alt="Your camera is off" />}
+        {mode === "audio" && (
+          <span className="basic-audio-indicator" aria-label="Your microphone">
+            <Mic size={20} aria-hidden="true" />
+          </span>
+        )}
+      </div>
+      <strong>You</strong>
+      <div className="self-grid-options">
+        <button
+          type="button"
+          aria-label="Self view options"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((open) => !open)}
+        >
+          <MoreHorizontal size={18} />
+        </button>
+        {menuOpen && (
+          <div className="self-grid-menu" role="menu" aria-label="Self view options">
+            <button type="button" role="menuitem" onClick={selfView.onRemove}>
+              <span className="grid-menu-icon remove" aria-hidden="true"><Grid2X2 size={15} /><X size={9} /></span>
+              Remove from the grid
+            </button>
+            <button type="button" role="menuitem" onClick={selfView.onMinimize}><Minimize2 size={15} />Minimize</button>
+          </div>
+        )}
+      </div>
+    </article>
   );
 }
 

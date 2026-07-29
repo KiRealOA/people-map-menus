@@ -1,0 +1,10 @@
+<svg width="23" height="23" viewBox="0 0 23 23" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g clip-path="url(#exit-meeting-clip)">
+    <path d="M5.27083 4.79232H11.9792C12.5542 4.79232 12.9375 5.17565 12.9375 5.75065V7.66732M5.27083 18.209H11.9792C12.5542 18.209 12.9375 17.8256 12.9375 17.2506V15.334M21.5625 11.5007H10.0625M18.6875 7.66732L21.7542 10.734C22.1375 11.1173 22.1375 11.6923 21.7542 12.0757L18.6875 15.334M1.4375 4.60065L5.27083 0.958984V22.0423L1.4375 18.4007V4.60065Z" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <defs>
+    <clipPath id="exit-meeting-clip">
+      <rect width="23" height="23" fill="white" transform="translate(23 23) rotate(180)"/>
+    </clipPath>
+  </defs>
+</svg>
