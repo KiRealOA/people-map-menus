@@ -36,12 +36,13 @@ import {
 import { ChatPanel, InviteUsersModal, MapSurface, PEOPLE, ROOMS } from "./App.jsx";
 import {
   ConversationBoundary,
-  ConversationMapStatus,
+  ConversationMapPreview,
   DestinationTransition,
 } from "./BasicConversation.jsx";
 import katmaiMenuIcon from "./assets/katmai-menu-icon.svg";
 import roomIcon from "./assets/room-icon.svg";
 import exitMeetingIcon from "./assets/exit-meeting.svg";
+import logOutCircleIcon from "./assets/log-out-circle.svg";
 import videoMutePlaceholder from "./assets/video-mute-placeholder.png";
 
 const VISIBLE_PEOPLE = PEOPLE.filter((person) => person.presenceGroup === "space");
@@ -75,7 +76,7 @@ function BasicApp() {
   const [destination, setDestination] = useState(null);
   const [roomDoorOpen, setRoomDoorOpen] = useState(true);
   const [screenSharing, setScreenSharing] = useState(false);
-  const [selfViewMode, setSelfViewMode] = useState("floating");
+  const [selfViewMode, setSelfViewMode] = useState("grid");
   const [selfMedia, setSelfMedia] = useState({ videoEnabled: false, stream: null });
   const [activeSidebarSelection, setActiveSidebarSelection] = useState(null);
   const [sidebarTab, setSidebarTab] = useState("people");
@@ -260,6 +261,15 @@ function BasicApp() {
       setLeaveToast(null);
       leaveToastTimerRef.current = null;
     }, 5000);
+  }
+
+  function leaveKatmai() {
+    setScreenSharing(false);
+    setConversation(null);
+    setRoomChatPersonId(null);
+    setRoomGroupChatOpen(false);
+    setActiveSidebarSelection(null);
+    setViewState(BASIC_VIEW.MAP);
   }
 
   function returnToLeftRoom() {
@@ -744,6 +754,7 @@ function BasicApp() {
             onToggleRoomChat={toggleRoomGroupChat}
             canLeaveRoom={currentRoomParticipants.length > 0}
             onLeaveRoom={leaveCurrentRoom}
+            onLeaveKatmai={leaveKatmai}
             viewMode={selfViewMode}
             onViewModeChange={setSelfViewMode}
             onMediaStateChange={setSelfMedia}
@@ -783,7 +794,7 @@ function BasicApp() {
           )}
 
           {viewState === BASIC_VIEW.MAP_WHILE_IN_CONVERSATION && currentConversationRoom && conversationParticipants.length > 0 && (
-            <ConversationMapStatus room={currentConversationRoom} mode={conversation.mode} onReturn={returnToConversation} />
+            <ConversationMapPreview room={currentConversationRoom} participants={conversationParticipants} mode={conversation.mode} onReturn={returnToConversation} />
           )}
 
           {viewState === BASIC_VIEW.DESTINATION_TRANSITION && destination && (
@@ -876,6 +887,7 @@ function ConfidenceMonitor({
   onToggleRoomChat,
   canLeaveRoom = false,
   onLeaveRoom,
+  onLeaveKatmai,
   viewMode = "floating",
   onViewModeChange,
   onMediaStateChange,
@@ -1174,6 +1186,7 @@ function ConfidenceMonitor({
         <button className={`confidence-control ${screenSharing ? "active" : ""}`} type="button" aria-pressed={screenSharing} aria-label={screenSharing ? "Stop sharing screen" : "Share screen"} title={screenSharing ? "Stop sharing screen" : "Share screen"} onClick={onToggleScreenSharing}><Cast size={19} /></button>
         {canOpenRoomChat && <button className={`confidence-control ${roomChatOpen ? "active" : ""}`} type="button" aria-pressed={roomChatOpen} aria-label={roomChatOpen ? "Close room chat" : "Open room chat"} title="Room chat" onClick={onToggleRoomChat}><MessageCircle size={19} /></button>}
         {canLeaveRoom && <button className="confidence-control leave-room" type="button" aria-label="Leave room" title="Leave room" onClick={onLeaveRoom}><img src={exitMeetingIcon} alt="" aria-hidden="true" /></button>}
+        <button className="confidence-control leave-katmai" type="button" aria-label="Leave Katmai" title="Leave Katmai" onClick={onLeaveKatmai}><img src={logOutCircleIcon} alt="" aria-hidden="true" /></button>
         {mediaError && <p className="confidence-media-error" role="alert">{mediaError}</p>}
       </div>
     </>

@@ -88,8 +88,10 @@ export function ConversationBoundary({
       ) : (
         <div className={`basic-honeycomb ${mode} count-${Math.min(participants.length + (selfView ? 1 : 0), 7)}`} aria-label={`${mode === "video" ? "Video" : "Audio"} participants`}>
           {selfView && <SelfGridParticipant mode={mode} selfView={selfView} />}
-          {participants.slice(0, selfView ? 6 : 7).map((participant, index) => (
-            <article className={`basic-honeycomb-person ${index === 0 ? "current" : ""} ${mode === "audio" && index === 1 ? "speaking" : ""}`} key={participant.id}>
+          {participants.slice(0, selfView ? 6 : 7).map((participant, index) => {
+            const isSpeaking = mode === "audio" && index === 1;
+            return (
+            <article className={`basic-honeycomb-person ${index === 0 ? "current" : ""} ${isSpeaking ? "speaking" : ""}`} key={participant.id} aria-label={`${participant.name}${isSpeaking ? ", speaking" : ""}`}>
               <div className="basic-honeycomb-avatar">
                 {participant.photo ? (
                   mode === "video" ? (
@@ -107,14 +109,18 @@ export function ConversationBoundary({
                   </span>
                 )}
                 {mode === "audio" && (
-                  <span className="basic-audio-indicator" aria-label={index === 1 ? "Speaking" : "Microphone active"}>
+                  <span className="basic-audio-indicator" aria-label={isSpeaking ? "Speaking" : "Microphone active"}>
                     <Mic size={20} aria-hidden="true" />
                   </span>
                 )}
               </div>
-              <strong>{participant.id === "you" ? "You" : participant.name.split(" ")[0]}</strong>
+              <strong className={isSpeaking ? "speaking-name" : ""} role={isSpeaking ? "status" : undefined}>
+                {isSpeaking && <span className="basic-speaking-wave" aria-hidden="true"><i /><i /><i /><i /></span>}
+                {participant.id === "you" ? "You" : participant.name.split(" ")[0]}
+              </strong>
             </article>
-          ))}
+            );
+          })}
         </div>
       )}
     </section>
@@ -258,6 +264,42 @@ export function ConversationMapStatus({ room, mode, onReturn }) {
       <div><small>Conversation continues</small><strong>{room.name} · {mode === "video" ? "Video" : "Audio only"}</strong></div>
       <button type="button" onClick={onReturn}>Return</button>
     </div>
+  );
+}
+
+export function ConversationMapPreview({ room, participants, mode, onReturn }) {
+  const visibleParticipants = participants.slice(0, 3);
+  const remainingCount = Math.max(0, participants.length - visibleParticipants.length);
+
+  return (
+    <button
+      className="basic-room-pip"
+      type="button"
+      aria-label={`Return to ${room.name} room view`}
+      title="Return to room view"
+      onClick={onReturn}
+    >
+      <span className={`basic-room-pip-media count-${visibleParticipants.length}`} aria-hidden="true">
+        {visibleParticipants.map((participant, index) => (
+          <span className="basic-room-pip-person" key={participant.id}>
+            {mode === "video" ? (
+              <video src={conversationFeeds[index % conversationFeeds.length]} autoPlay loop muted playsInline />
+            ) : (
+              <img src={conversationStills[index % conversationStills.length]} alt="" />
+            )}
+          </span>
+        ))}
+        {remainingCount > 0 && <span className="basic-room-pip-overflow">+{remainingCount}</span>}
+      </span>
+      <span className="basic-room-pip-footer">
+        <span className="basic-live-dot" />
+        <span className="basic-room-pip-copy">
+          <small>{mode === "video" ? "Active room" : "Audio only"}</small>
+          <strong>{room.name}</strong>
+        </span>
+        <ArrowRight size={17} aria-hidden="true" />
+      </span>
+    </button>
   );
 }
 
