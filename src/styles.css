@@ -3950,6 +3950,10 @@ button {
   transform: scale(1.01);
 }
 
+.app-shell.zoe-office-active .office-video {
+  display: none;
+}
+
 .office-soften {
   position: absolute;
   inset: 0;
@@ -4029,15 +4033,16 @@ button {
 .surface {
   position: absolute;
   z-index: 8;
-  inset: 24px;
+  inset: auto auto 20px 20px;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: flex-end;
+  justify-content: flex-start;
   pointer-events: none;
   animation: surfaceFadeIn 240ms cubic-bezier(0.2, 0.78, 0.2, 1);
 }
 
 .surface.expanded {
+  inset: 24px;
   align-items: stretch;
 }
 
@@ -4645,6 +4650,7 @@ h2 {
   justify-content: space-between;
   width: 100%;
   min-height: 28px;
+  gap: 7px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -4662,16 +4668,30 @@ h2 {
 }
 
 .people-section-heading h2 {
-  font-size: 0.88rem;
-  color: var(--ink);
+  color: #778095;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
   line-height: 1;
+  text-transform: uppercase;
 }
 
-.people-section-state {
-  color: rgba(23, 32, 30, 0.5);
-  font-size: 0.72rem;
-  font-weight: 800;
+.people-section-count {
+  margin-left: auto;
+  color: #8992a3;
+  font-size: 0.68rem;
+  font-weight: 750;
   white-space: nowrap;
+}
+
+.people-section-heading svg {
+  flex: 0 0 auto;
+  color: #8992a3;
+  transition: transform 160ms ease;
+}
+
+.people-section-heading svg.collapsed {
+  transform: rotate(-90deg);
 }
 
 .people-section.collapsed .people-section-heading {
@@ -4760,7 +4780,26 @@ h2 {
   min-width: 0;
 }
 
+.person-line > strong {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.person-statuses {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+}
+
+.person-statuses .basic-status-emoji {
+  position: relative;
+  margin: 0;
+  transform: none;
+}
+
 .unread-badge {
+  margin-left: auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;

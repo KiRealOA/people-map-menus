@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Clock3,
   Compass,
+  ChevronDown,
   DoorOpen,
   Download,
   FileUp,
@@ -30,6 +31,8 @@ import {
 } from "lucide-react";
 import officeBackdrop from "./assets/katmai-office-backdrop.png";
 import officeBackdropVideo from "./assets/Katmai_Office_bg_01.mp4";
+import zoeOfficeBackdrop from "./assets/zoes-office.png";
+import zoeProfile from "./assets/zoe-profile.png";
 import { getRoomBackground } from "./roomBackgrounds.js";
 import { StatusIcon, getStatusIconOption, getStatusMeta } from "./statusIcons.jsx";
 import { ModeIcon, ModeIndicator, getModeMeta } from "./presenceMeta.jsx";
@@ -49,7 +52,7 @@ const PERSON_PHOTOS = {
   omar: "https://randomuser.me/api/portraits/men/64.jpg",
   lina: "https://randomuser.me/api/portraits/women/60.jpg",
   theo: "https://randomuser.me/api/portraits/men/22.jpg",
-  zoe: "https://randomuser.me/api/portraits/women/7.jpg",
+  zoe: zoeProfile,
   ari: "https://randomuser.me/api/portraits/women/26.jpg",
   nina: "https://randomuser.me/api/portraits/women/34.jpg",
   cam: "https://randomuser.me/api/portraits/men/48.jpg",
@@ -944,6 +947,7 @@ function App() {
   const [toasts, setToasts] = useState([]);
   const [mapFocusPersonId, setMapFocusPersonId] = useState(null);
   const [currentUserRoomId, setCurrentUserRoomId] = useState("south-pod");
+  const [zoeOfficeActive, setZoeOfficeActive] = useState(false);
   const jumpAttemptRef = useRef(0);
   const toastTimersRef = useRef(new globalThis.Map());
 
@@ -1004,6 +1008,7 @@ function App() {
       }
 
       setCurrentUserRoomId(room.id);
+      if (person.id === "zoe") setZoeOfficeActive(true);
       onResult({ status: "accepted", room });
       pushToast(`Jump accepted — you moved to ${room.name} with ${person.name}`, "success");
     }, 1400);
@@ -1011,8 +1016,8 @@ function App() {
 
   return (
     <main
-      className="app-shell"
-      style={{ "--office-backdrop": `url(${officeBackdrop})` }}
+      className={`app-shell ${zoeOfficeActive ? "zoe-office-active" : ""}`}
+      style={{ "--office-backdrop": `url(${zoeOfficeActive ? zoeOfficeBackdrop : officeBackdrop})` }}
     >
       <SpatialBackdrop />
 
@@ -1061,7 +1066,6 @@ function SpatialBackdrop() {
       <video
         className="office-video"
         autoPlay
-        loop
         muted
         playsInline
         preload="auto"
@@ -1657,7 +1661,7 @@ function PeopleSurface({
 
             <div className="people-sections">
               <PeopleRosterSection
-                title="Everyone in the space"
+                title="Marketing Space(Current)"
                 count={filteredPeople.filter((person) => (person.presenceGroup || "space") === "space").length}
                 people={filteredPeople.filter((person) => (person.presenceGroup || "space") === "space")}
                 collapsed={collapsedSections.space}
@@ -1669,7 +1673,7 @@ function PeopleSurface({
               />
 
               <PeopleRosterSection
-                title="Online elsewhere"
+                title="Engineering Space"
                 count={filteredPeople.filter((person) => person.presenceGroup === "elsewhere").length}
                 people={filteredPeople.filter((person) => person.presenceGroup === "elsewhere")}
                 collapsed={collapsedSections.elsewhere}
@@ -1730,9 +1734,26 @@ function PersonRow({
         <span className="person-copy">
           <span className="person-line">
             <strong>{person.name}</strong>
+            <span className="person-statuses">
+              {getPersonStatuses(person).map((status) => {
+                const statusMeta = getStatusMeta(status);
+                const tone = getStatusIconOption(statusMeta.iconId)?.tone || "navy";
+                return (
+                  <span
+                    className={`basic-status-emoji automatic status-tone-${tone}`}
+                    key={status}
+                    role="img"
+                    tabIndex="0"
+                    aria-label={`Status: ${statusMeta.description}`}
+                    data-status-tooltip={statusMeta.description}
+                  >
+                    <StatusIcon iconId={statusMeta.iconId} size={16} />
+                  </span>
+                );
+              })}
+            </span>
           </span>
         </span>
-        {person.status && <Presence signal={person.signal} label={person.status} />}
         {unreadItemCount ? (
           <span
             className={`unread-badge ${incomingRequest ? "has-action" : ""}`}
@@ -1769,8 +1790,9 @@ function PeopleRosterSection({
         aria-expanded={!collapsed}
         onClick={onToggleCollapsed}
       >
-        <h2 className="people-section-title">{`${title} (${count})`}</h2>
-        <span className="people-section-state">{collapsed ? "Show" : "Hide"}</span>
+        <h2 className="people-section-title">{title}</h2>
+        <span className="people-section-count">{count}</span>
+        <ChevronDown className={collapsed ? "collapsed" : ""} size={15} aria-hidden="true" />
       </button>
       {!collapsed && (
         <div className="roster" aria-label={title}>
@@ -1789,17 +1811,51 @@ function PeopleRosterSection({
 }
 
 export function ChatPanel({ person, requestMessages, closing, onClose, onBack, onJump, onSummon, onMap }) {
-  const thread = getChatThread(person);
+  const isZoeDemo = person.id === "zoe";
+  const thread = isZoeDemo ? {} : getChatThread(person);
   const theme = getChatTheme(person.id);
   const incomingRequest = getIncomingRequest(person.id);
   const [incomingRequestState, setIncomingRequestState] = useState("pending");
+  const [demoMessages, setDemoMessages] = useState([]);
+  const [draft, setDraft] = useState("");
+  const replyTimerRef = useRef(null);
   const incomingTime = person.id.charCodeAt(0) % 2 === 0 ? "10:42 AM" : "10:38 AM";
   const outgoingTime = person.id.charCodeAt(person.id.length - 1) % 2 === 0 ? "10:44 AM" : "10:41 AM";
   const personStatuses = getPersonStatuses(person);
 
   useEffect(() => {
     setIncomingRequestState("pending");
+    setDemoMessages([]);
+    setDraft("");
+    if (replyTimerRef.current) {
+      window.clearTimeout(replyTimerRef.current);
+      replyTimerRef.current = null;
+    }
+
+    return () => {
+      if (replyTimerRef.current) window.clearTimeout(replyTimerRef.current);
+    };
   }, [person.id]);
+
+  function sendDemoMessage() {
+    const text = draft.trim();
+    if (!text) return;
+
+    const sentAt = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    setDemoMessages((messages) => [
+      ...messages,
+      { id: crypto.randomUUID(), direction: "outgoing", text, time: sentAt }
+    ]);
+    setDraft("");
+    replyTimerRef.current = window.setTimeout(() => {
+      const repliedAt = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+      setDemoMessages((messages) => [
+        ...messages,
+        { id: crypto.randomUUID(), direction: "incoming", text: "Sure", time: repliedAt }
+      ]);
+      replyTimerRef.current = null;
+    }, 1000);
+  }
 
   return (
     <aside
@@ -1876,6 +1932,12 @@ export function ChatPanel({ person, requestMessages, closing, onClose, onBack, o
             <p className="message outgoing">{thread.outgoing}</p>
           </div>
         )}
+        {demoMessages.map((message) => (
+          <div className={`message-group ${message.direction}`} key={message.id}>
+            <div className="message-meta">{message.direction === "incoming" ? person.name : "You"} · {message.time}</div>
+            <p className={`message ${message.direction}`}>{message.text}</p>
+          </div>
+        ))}
         {incomingRequest && (
           <IncomingRequestCard
             kind={incomingRequest.kind}
@@ -1916,8 +1978,18 @@ export function ChatPanel({ person, requestMessages, closing, onClose, onBack, o
       </div>
 
       <label className="composer">
-        <input placeholder={`Message ${person.name}`} />
-        <button type="button" aria-label="Send message">
+        <input
+          value={isZoeDemo ? draft : undefined}
+          onChange={isZoeDemo ? (event) => setDraft(event.target.value) : undefined}
+          onKeyDown={isZoeDemo ? (event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              sendDemoMessage();
+            }
+          } : undefined}
+          placeholder={`Message ${person.name}`}
+        />
+        <button type="button" aria-label="Send message" onClick={isZoeDemo ? sendDemoMessage : undefined}>
           <Send size={17} aria-hidden="true" />
         </button>
       </label>
