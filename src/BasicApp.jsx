@@ -12,6 +12,7 @@ import {
   Grid2X2Plus,
   Map as MapIcon,
   MapPin,
+  Maximize2,
   MessageCircle,
   Mic,
   MicOff,
@@ -31,9 +32,10 @@ import {
   UserPlus,
   Users,
   Video,
-  VideoOff
+  VideoOff,
+  X
 } from "lucide-react";
-import { ChatPanel, InviteUsersModal, MapSurface, PEOPLE, ROOMS } from "./App.jsx";
+import { ChatPanel, InviteUsersModal, MapSurface, PEOPLE, ROOMS, getEffectivePeople, getPersonStatuses } from "./App.jsx";
 import {
   ConversationBoundary,
   ConversationMapPreview,
@@ -44,8 +46,16 @@ import roomIcon from "./assets/room-icon.svg";
 import exitMeetingIcon from "./assets/exit-meeting.svg";
 import logOutCircleIcon from "./assets/log-out-circle.svg";
 import videoMutePlaceholder from "./assets/video-mute-placeholder.png";
+import {
+  CUSTOM_STATUS_PRESETS,
+  STATUS_ICON_OPTIONS,
+  StatusIcon,
+  getStatusIconOption,
+  getStatusMeta,
+} from "./statusIcons.jsx";
+import { ModeIcon, ModeIndicator, getModeMeta } from "./presenceMeta.jsx";
 
-const VISIBLE_PEOPLE = PEOPLE.filter((person) => person.presenceGroup === "space");
+const VISIBLE_PEOPLE = PEOPLE;
 
 const BASIC_VIEW = Object.freeze({
   MAP: "map",
@@ -58,6 +68,126 @@ const BASIC_VIEW = Object.freeze({
   LEAVE_CONFIRMATION: "leave-confirmation",
   DESTINATION_TRANSITION: "destination-transition"
 });
+
+function BasicStatusEmoji({ status, customStatus, className = "" }) {
+  const systemMeta = status ? getStatusMeta(status) : null;
+  const meta = customStatus || systemMeta;
+  if (!meta) return null;
+  const tone = getStatusIconOption(meta.iconId)?.tone || "navy";
+  const label = customStatus
+    ? `${customStatus.text}${systemMeta ? ` · ${systemMeta.description}` : ""}`
+    : meta.description;
+  return (
+    <span
+      className={`basic-status-emoji status-tone-${tone} ${customStatus ? "custom" : "automatic"} ${className}`.trim()}
+      role="img"
+      tabIndex="0"
+      aria-label={label}
+      data-status-tooltip={label}
+    >
+      <StatusIcon iconId={meta.iconId} emoji={meta.emoji} size={16} />
+    </span>
+  );
+}
+
+function BasicAvatarModeBadge({ mode }) {
+  const meta = getModeMeta(mode);
+  if (meta.id === "3d") return null;
+  return (
+    <span className={`avatar-mode-indicator basic-avatar-mode-indicator mode-${meta.id}`} aria-label={`${meta.label} mode`}>
+      <ModeIcon mode={mode} size={10} />
+    </span>
+  );
+}
+
+function BasicRailSelfMonitor({ minimized, videoEnabled, micEnabled, stream, customStatus, onExpand, onSetStatus, onShowGrid }) {
+  const rootRef = useRef(null);
+  const videoRef = useRef(null);
+  const previewVideoRef = useRef(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const statusTone = getStatusIconOption(customStatus?.iconId)?.tone || "navy";
+
+  useEffect(() => {
+    [videoRef.current, previewVideoRef.current].filter(Boolean).forEach((video) => {
+      video.srcObject = stream || null;
+      if (videoEnabled && stream) video.play().catch(() => {});
+    });
+  }, [stream, videoEnabled]);
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    function closeMenu(event) {
+      if (!rootRef.current?.contains(event.target)) setMenuOpen(false);
+    }
+    document.addEventListener("mousedown", closeMenu);
+    return () => document.removeEventListener("mousedown", closeMenu);
+  }, [menuOpen]);
+
+  function runAction(action) {
+    setMenuOpen(false);
+    action?.();
+  }
+
+  if (!minimized) {
+    return customStatus ? (
+      <div className="basic-rail-self-status-only">
+        <button
+          className={`basic-rail-self-status standalone status-tone-${statusTone}`}
+          type="button"
+          aria-label={`Your status: ${customStatus.text}. Edit status`}
+          title={customStatus.text}
+          onClick={onSetStatus}
+        >
+          <StatusIcon iconId={customStatus.iconId} emoji={customStatus.emoji} size={15} />
+        </button>
+      </div>
+    ) : null;
+  }
+
+  return (
+    <div ref={rootRef} className={`basic-rail-self-monitor minimized ${menuOpen ? "menu-open" : ""}`}>
+      {customStatus ? (
+        <button
+          className={`basic-rail-self-status status-tone-${statusTone}`}
+          type="button"
+          aria-label={`Your status: ${customStatus.text}. Edit status`}
+          title={customStatus.text}
+          onClick={() => runAction(onSetStatus)}
+        >
+          <StatusIcon iconId={customStatus.iconId} emoji={customStatus.emoji} size={15} />
+        </button>
+      ) : null}
+      <button
+        className="basic-rail-self-monitor-button"
+        type="button"
+        aria-label="Open self view options"
+        aria-expanded={menuOpen}
+        onClick={() => setMenuOpen((open) => !open)}
+      >
+        <video ref={videoRef} className={videoEnabled && stream ? "" : "hidden"} autoPlay muted playsInline />
+        {(!videoEnabled || !stream) && <img src={videoMutePlaceholder} alt="" />}
+      </button>
+
+      <div className={`basic-rail-self-preview ${micEnabled ? "" : "mic-off"}`} role="tooltip" aria-label="Your self view">
+        <video ref={previewVideoRef} className={videoEnabled && stream ? "" : "hidden"} autoPlay muted playsInline />
+        {(!videoEnabled || !stream) && <img src={videoMutePlaceholder} alt="Your camera is off" />}
+        {customStatus ? (
+          <span className={`basic-rail-self-preview-status status-tone-${statusTone}`} aria-label={`Your status: ${customStatus.text}`}>
+            <StatusIcon iconId={customStatus.iconId} emoji={customStatus.emoji} size={14} />
+          </span>
+        ) : null}
+      </div>
+
+      {menuOpen ? (
+        <div className="basic-rail-self-menu confidence-view-menu" role="menu" aria-label="Self view options">
+          <button type="button" role="menuitem" onClick={() => runAction(onSetStatus)}><Smile size={16} aria-hidden="true" />{customStatus ? "Edit status" : "Set a status"}</button>
+          <button type="button" role="menuitem" onClick={() => runAction(onShowGrid)}><Grid2X2Plus size={16} aria-hidden="true" />Show in a grid</button>
+          <button type="button" role="menuitem" onClick={() => runAction(onExpand)}><Maximize2 size={15} aria-hidden="true" />Show on map</button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function BasicApp() {
   const [query, setQuery] = useState("");
@@ -77,7 +207,9 @@ function BasicApp() {
   const [roomDoorOpen, setRoomDoorOpen] = useState(true);
   const [screenSharing, setScreenSharing] = useState(false);
   const [selfViewMode, setSelfViewMode] = useState("grid");
-  const [selfMedia, setSelfMedia] = useState({ videoEnabled: false, stream: null });
+  const [selfMedia, setSelfMedia] = useState({ videoEnabled: false, micEnabled: false, stream: null });
+  const [customStatus, setCustomStatus] = useState(null);
+  const [statusEditorOpen, setStatusEditorOpen] = useState(false);
   const [activeSidebarSelection, setActiveSidebarSelection] = useState(null);
   const [sidebarTab, setSidebarTab] = useState("people");
   const [officeHoursActive, setOfficeHoursActive] = useState(false);
@@ -111,6 +243,17 @@ function BasicApp() {
     if (leaveToastTimerRef.current) window.clearTimeout(leaveToastTimerRef.current);
   }, []);
 
+  useEffect(() => {
+    if (!customStatus?.expiresAt) return undefined;
+    const remaining = customStatus.expiresAt - Date.now();
+    if (remaining <= 0) {
+      setCustomStatus(null);
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setCustomStatus(null), Math.min(remaining, 2147483647));
+    return () => window.clearTimeout(timer);
+  }, [customStatus]);
+
   function toggleSection(section) {
     setCollapsedSections((current) => ({
       ...current,
@@ -135,8 +278,8 @@ function BasicApp() {
     setActiveSidebarSelection(selection || null);
   }, []);
 
-  const people = useMemo(() => [...VISIBLE_PEOPLE, ...addedPeople], [addedPeople]);
-  const allPeople = useMemo(() => [...PEOPLE, ...addedPeople], [addedPeople]);
+  const people = useMemo(() => getEffectivePeople([...VISIBLE_PEOPLE, ...addedPeople]), [addedPeople]);
+  const allPeople = useMemo(() => getEffectivePeople([...PEOPLE, ...addedPeople]), [addedPeople]);
   const statusOptions = useMemo(
     () => [...new Set(people.map((person) => person.status).filter(Boolean))],
     [people]
@@ -154,7 +297,7 @@ function BasicApp() {
     () =>
       ROOMS.map((room) => {
         const occupants = allPeople.filter(
-          (person) => person.roomId === room.id && (person.presenceGroup === "space" || room.id === "river")
+          (person) => person.roomId === room.id
         );
         return {
           ...room,
@@ -405,6 +548,18 @@ function BasicApp() {
           </button>
         </div>
         <div className="basic-rail-group basic-rail-bottom">
+          {selfViewMode === "minimized" || customStatus ? (
+            <BasicRailSelfMonitor
+              minimized={selfViewMode === "minimized"}
+              videoEnabled={selfMedia.videoEnabled}
+              micEnabled={selfMedia.micEnabled}
+              stream={selfMedia.stream}
+              customStatus={customStatus}
+              onExpand={() => setSelfViewMode("floating")}
+              onSetStatus={() => setStatusEditorOpen(true)}
+              onShowGrid={() => setSelfViewMode("grid")}
+            />
+          ) : null}
           <button type="button" aria-label="Refresh session" title="Refresh session" onClick={() => window.location.reload()}>
             <RefreshCw size={20} aria-hidden="true" />
           </button>
@@ -448,9 +603,15 @@ function BasicApp() {
                 <strong>Status</strong>
                 {statusOptions.map((status) => {
                   const selected = statusFilters.includes(status);
+                  const statusMeta = getStatusMeta(status);
                   return (
                     <button key={status} type="button" role="menuitemcheckbox" aria-checked={selected} onClick={() => setStatusFilters((current) => selected ? current.filter((value) => value !== status) : [...current, status])}>
-                      <span className={`basic-status ${status.toLowerCase().replaceAll(" ", "-")}`}>{status}</span>
+                      <span className="basic-filter-status-option">
+                        <span className={`basic-filter-status-icon status-tone-${getStatusIconOption(statusMeta.iconId)?.tone || "navy"}`} aria-hidden="true">
+                          <StatusIcon iconId={statusMeta.iconId} size={13} />
+                        </span>
+                        {status}
+                      </span>
                       {selected && <b>✓</b>}
                     </button>
                   );
@@ -482,8 +643,16 @@ function BasicApp() {
               <div className="basic-person-list basic-current-room-list" aria-label={`People in ${currentRoom.name}`}>
                 {currentRoomParticipants.map((person) => (
                   <button className={activeSidebarSelection?.type === "person" && activeSidebarSelection.id === person.id ? "selected" : ""} type="button" key={person.id} onClick={() => openRoomChat(person)}>
-                    <span className="basic-person-avatar">{person.photo ? <img src={person.photo} alt="" referrerPolicy="no-referrer" /> : person.name[0]}</span>
-                    <span className="basic-person-copy"><strong>{person.name}</strong></span>
+                    <span className="basic-person-avatar">{person.photo ? <img src={person.photo} alt="" referrerPolicy="no-referrer" /> : person.name[0]}<BasicAvatarModeBadge mode={person.experienceMode} /></span>
+                    <span className="basic-person-copy">
+                      <span className="basic-person-name-row">
+                        <strong>{person.name}</strong>
+                      <span className="basic-person-statuses">
+                        {getPersonStatuses(person).map((status) => <BasicStatusEmoji key={status} status={status} customStatus={person.customStatus} className="sidebar-name-status" />)}
+                      </span>
+                      </span>
+                      <ModeIndicator mode={person.experienceMode} showLabel textOnly className="basic-person-mode-row" />
+                    </span>
                   </button>
                 ))}
               </div>
@@ -554,10 +723,16 @@ function BasicApp() {
                   >
                     <span className="basic-person-avatar">
                       {person.photo ? <img src={person.photo} alt="" referrerPolicy="no-referrer" /> : person.name[0]}
+                      <BasicAvatarModeBadge mode={person.experienceMode} />
                     </span>
                     <span className="basic-person-copy">
-                      <strong>{person.name}</strong>
-                      {person.status && <span className={`basic-status ${person.status.toLowerCase().replaceAll(" ", "-")}`}>{person.status}</span>}
+                      <span className="basic-person-name-row">
+                        <strong>{person.name}</strong>
+                        <span className="basic-person-statuses">
+                          {getPersonStatuses(person).map((status) => <BasicStatusEmoji key={status} status={status} customStatus={person.customStatus} className="sidebar-name-status" />)}
+                        </span>
+                      </span>
+                      <ModeIndicator mode={person.experienceMode} showLabel textOnly className="basic-person-mode-row" />
                     </span>
                   </button>
                 ))}
@@ -588,7 +763,7 @@ function BasicApp() {
                   <div className="basic-host-list">
                     {officeHoursHosts.map((host, index) => (
                       <button type="button" key={host.id} className="basic-host-row">
-                        <span className="basic-person-avatar">{host.photo ? <img src={host.photo} alt="" referrerPolicy="no-referrer" /> : host.name[0]}</span>
+                        <span className="basic-person-avatar">{host.photo ? <img src={host.photo} alt="" referrerPolicy="no-referrer" /> : host.name[0]}<BasicAvatarModeBadge mode={host.experienceMode} /></span>
                         <span><strong>{host.name}</strong><small>{index === 0 ? "2 people in queue" : "1 person in queue"}</small></span>
                         <span className="basic-queue-pill">Join</span>
                       </button>
@@ -698,6 +873,19 @@ function BasicApp() {
       </aside>
 
       <InviteUsersModal open={addUserOpen} onClose={() => setAddUserOpen(false)} onInvite={addUsers} />
+      <CustomStatusModal
+        open={statusEditorOpen}
+        value={customStatus}
+        onClose={() => setStatusEditorOpen(false)}
+        onSave={(status) => {
+          setCustomStatus(status);
+          setStatusEditorOpen(false);
+        }}
+        onClear={() => {
+          setCustomStatus(null);
+          setStatusEditorOpen(false);
+        }}
+      />
 
       <section className="basic-workspace" aria-label="Katmai Basic workspace">
         <div className={`basic-workspace-stage ${chatOpen || roomGroupChatOpen || (showConversation && Boolean(roomChatPerson)) ? "right-panel-open" : ""}`}>
@@ -715,6 +903,8 @@ function BasicApp() {
                 videoEnabled: selfMedia.videoEnabled,
                 stream: selfMedia.stream,
                 placeholder: videoMutePlaceholder,
+                customStatus,
+                onSetStatus: () => setStatusEditorOpen(true),
                 onRemove: () => setSelfViewMode("floating"),
                 onMinimize: () => setSelfViewMode("minimized")
               } : null}
@@ -758,13 +948,14 @@ function BasicApp() {
             viewMode={selfViewMode}
             onViewModeChange={setSelfViewMode}
             onMediaStateChange={setSelfMedia}
+            customStatus={customStatus}
+            onSetStatus={() => setStatusEditorOpen(true)}
             gridVisible={showConversation}
           >
-            {({ selfPreview }) => (
+            {() => (
               <PresenceSwitcher
                 room={currentRoom}
                 roomActive={showConversation}
-                selfPreview={selfPreview}
                 onOpenRoom={openCurrentRoom}
                 onOpenMap={() => conversation ? openMapDuringConversation() : setViewState(BASIC_VIEW.MAP)}
               />
@@ -811,6 +1002,128 @@ function BasicApp() {
         </div>
       </section>
     </main>
+  );
+}
+
+function getCustomStatusExpiry(duration) {
+  const now = Date.now();
+  if (duration === "hour") return now + 60 * 60 * 1000;
+  if (duration === "four-hours") return now + 4 * 60 * 60 * 1000;
+  if (duration === "today") {
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
+    return endOfDay.getTime();
+  }
+  if (duration === "week") return now + 7 * 24 * 60 * 60 * 1000;
+  return null;
+}
+
+function CustomStatusModal({ open, value, onClose, onSave, onClear }) {
+  const [iconId, setIconId] = useState(value?.iconId || "focus");
+  const [emoji, setEmoji] = useState(value?.emoji || "");
+  const [text, setText] = useState(value?.text || "");
+  const [duration, setDuration] = useState(value?.duration || "never");
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setIconId(value?.iconId || "focus");
+    setEmoji(value?.emoji || "");
+    setText(value?.text || "");
+    setDuration(value?.duration || "never");
+    const frame = window.requestAnimationFrame(() => inputRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, value]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  function choosePreset(preset) {
+    setIconId(preset.iconId);
+    setEmoji("");
+    setText(preset.text);
+    setDuration(preset.duration);
+  }
+
+  function submitStatus(event) {
+    event.preventDefault();
+    const trimmedText = text.trim();
+    if (!trimmedText) return;
+    onSave({
+      iconId,
+      emoji,
+      text: trimmedText,
+      duration,
+      expiresAt: getCustomStatusExpiry(duration)
+    });
+  }
+
+  return (
+    <div className="basic-status-modal-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <form className="basic-status-modal" role="dialog" aria-modal="true" aria-labelledby="basic-status-modal-title" onSubmit={submitStatus}>
+        <header>
+          <h2 id="basic-status-modal-title">Set a status</h2>
+          <button type="button" aria-label="Close status editor" onClick={onClose}><X size={20} /></button>
+        </header>
+
+        <label className="basic-status-composer">
+          <span className={`basic-status-selected-emoji status-icon-tile ${getStatusIconOption(iconId)?.tone || "navy"}`} aria-hidden="true"><StatusIcon iconId={iconId} emoji={emoji} size={14} /></span>
+          <input ref={inputRef} value={text} onChange={(event) => setText(event.target.value)} maxLength={80} placeholder="What's your status?" aria-label="Status text" />
+          {text && <button type="button" aria-label="Clear status text" onClick={() => setText("")}><X size={15} /></button>}
+        </label>
+
+        <div className="basic-status-emoji-picker" aria-label="Choose a status icon">
+          {STATUS_ICON_OPTIONS.map((option) => (
+            <button className={iconId === option.id && !emoji ? "selected" : ""} type="button" key={option.id} aria-label={`Use ${option.label} status icon`} aria-pressed={iconId === option.id && !emoji} onClick={() => { setIconId(option.id); setEmoji(""); }}>
+              <span className={`status-icon-tile ${option.tone}`}><StatusIcon iconId={option.id} size={18} /></span>
+            </button>
+          ))}
+        </div>
+
+        <label className="basic-status-custom-emoji">
+          <span>Custom emoji</span>
+          <input value={emoji} onChange={(event) => setEmoji(event.target.value)} maxLength={4} placeholder="Paste an emoji" aria-label="Paste an emoji fallback" />
+        </label>
+
+        <section className="basic-status-presets" aria-labelledby="basic-status-presets-title">
+          <h3 id="basic-status-presets-title">Suggested</h3>
+          {CUSTOM_STATUS_PRESETS.map((preset) => (
+            <button type="button" key={preset.text} onClick={() => choosePreset(preset)}>
+              <span className={`basic-status-preset-icon status-tone-${getStatusIconOption(preset.iconId)?.tone || "navy"}`} aria-hidden="true"><StatusIcon iconId={preset.iconId} size={16} /></span>
+              <strong>{preset.text}</strong>
+              <small>{preset.duration === "never" ? "Don't clear" : preset.duration === "today" ? "Today" : preset.duration === "four-hours" ? "4 hours" : "1 hour"}</small>
+            </button>
+          ))}
+        </section>
+
+        <label className="basic-status-duration">
+          <span>Remove status after</span>
+          <select value={duration} onChange={(event) => setDuration(event.target.value)}>
+            <option value="never">Don't clear</option>
+            <option value="hour">1 hour</option>
+            <option value="four-hours">4 hours</option>
+            <option value="today">Today</option>
+            <option value="week">1 week</option>
+          </select>
+        </label>
+
+        <footer>
+          {value && <button className="clear" type="button" onClick={onClear}>Clear status</button>}
+          <button type="button" onClick={onClose}>Cancel</button>
+          <button className="primary" type="submit" disabled={!text.trim()}>Save</button>
+        </footer>
+      </form>
+    </div>
   );
 }
 
@@ -891,13 +1204,13 @@ function ConfidenceMonitor({
   viewMode = "floating",
   onViewModeChange,
   onMediaStateChange,
+  customStatus,
+  onSetStatus,
   gridVisible = false,
   children
 }) {
   const monitorRef = useRef(null);
   const expandedVideoRef = useRef(null);
-  const compactVideoRef = useRef(null);
-  const hoverVideoRef = useRef(null);
   const streamRef = useRef(null);
   const dragRef = useRef(null);
   const reactionTimerRef = useRef(null);
@@ -915,7 +1228,7 @@ function ConfidenceMonitor({
   const floatingVisible = viewMode === "floating" || (viewMode === "grid" && !gridVisible);
 
   useEffect(() => {
-    [expandedVideoRef.current, compactVideoRef.current, hoverVideoRef.current]
+    [expandedVideoRef.current]
       .filter(Boolean)
       .forEach((video) => {
         video.srcObject = streamRef.current;
@@ -931,9 +1244,10 @@ function ConfidenceMonitor({
   useEffect(() => {
     onMediaStateChange?.({
       videoEnabled,
+      micEnabled,
       stream: streamRef.current
     });
-  }, [videoEnabled, streamVersion, onMediaStateChange]);
+  }, [videoEnabled, micEnabled, streamVersion, onMediaStateChange]);
 
   useEffect(() => {
     if (!position) return;
@@ -1044,6 +1358,11 @@ function ConfidenceMonitor({
     onViewModeChange?.("grid");
   }
 
+  function openStatusEditor() {
+    setViewMenuOpen(false);
+    onSetStatus?.();
+  }
+
   function handlePointerDown(event) {
     event.stopPropagation();
     if (event.button !== 0 || event.target.closest("button")) return;
@@ -1122,23 +1441,9 @@ function ConfidenceMonitor({
       ? undefined
       : { right: chatDockRight };
 
-  const selfPreview = minimized ? (
-    <div className="confidence-card-preview-wrap">
-      <button className={`confidence-card-preview ${videoEnabled ? "camera-on" : ""}`} type="button" aria-label="Expand self view" title="Expand self view" onClick={() => onViewModeChange?.("floating")}>
-        <video ref={compactVideoRef} className={videoEnabled ? "" : "hidden"} autoPlay muted playsInline />
-        {!videoEnabled && <img src={videoMutePlaceholder} alt="" />}
-      </button>
-      <div className="confidence-hover-preview" role="tooltip" aria-label="Large self preview">
-        <video ref={hoverVideoRef} className={videoEnabled ? "" : "hidden"} autoPlay muted playsInline />
-        {!videoEnabled && <img src={videoMutePlaceholder} alt="Your camera is off" />}
-        <small>Your self view</small>
-      </div>
-    </div>
-  ) : null;
-
   return (
     <>
-      {typeof children === "function" ? children({ selfPreview }) : children}
+      {typeof children === "function" ? children({ selfPreview: null }) : children}
 
       {floatingVisible && (
         <section
@@ -1170,6 +1475,7 @@ function ConfidenceMonitor({
             </button>
             {viewMenuOpen && (
               <div className="confidence-view-menu" role="menu" aria-label="Self view options">
+                <button type="button" role="menuitem" onClick={openStatusEditor}><Smile size={16} aria-hidden="true" />{customStatus ? "Edit status" : "Set a status"}</button>
                 <button type="button" role="menuitem" onClick={showMonitorInGrid}><Grid2X2Plus size={16} aria-hidden="true" />Show in a grid</button>
                 <button type="button" role="menuitem" onClick={minimizeMonitor}><Minimize2 size={15} />Minimize</button>
               </div>

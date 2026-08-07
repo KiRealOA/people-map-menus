@@ -31,6 +31,8 @@ import {
 import officeBackdrop from "./assets/katmai-office-backdrop.png";
 import officeBackdropVideo from "./assets/Katmai_Office_bg_01.mp4";
 import { getRoomBackground } from "./roomBackgrounds.js";
+import { StatusIcon, getStatusIconOption, getStatusMeta } from "./statusIcons.jsx";
+import { ModeIcon, ModeIndicator, getModeMeta } from "./presenceMeta.jsx";
 
 const PERSON_PHOTOS = {
   maya: "https://randomuser.me/api/portraits/women/44.jpg",
@@ -60,7 +62,8 @@ export const CURRENT_USER = {
   id: "you",
   name: "You",
   photo: PERSON_PHOTOS.you,
-  palette: ["#efe9ff", "#8c52ff", "#5801eb"]
+  palette: ["#efe9ff", "#8c52ff", "#5801eb"],
+  experienceMode: "basic"
 };
 
 const USER_ROLES = ["Team Member", "Office Administrator", "Guest"];
@@ -79,8 +82,8 @@ export const PEOPLE = [
     role: "Product design",
     roomId: "river",
     presenceGroup: "space",
-    status: "Private",
-    signal: "private",
+    status: "In conversation",
+    signal: "conversation",
     experienceMode: "2d",
     planX: 466,
     planY: 104,
@@ -92,6 +95,7 @@ export const PEOPLE = [
     role: "Frontend",
     roomId: "river",
     presenceGroup: "space",
+    experienceMode: "3d",
     planX: 532,
     planY: 104,
     palette: ["#f5f7ff", "#49b6e9", "#0b63d8"]
@@ -104,6 +108,8 @@ export const PEOPLE = [
     presenceGroup: "space",
     status: "In conversation",
     signal: "conversation",
+    experienceMode: "basic",
+    liveCondition: "video-unavailable",
     planX: 324,
     planY: 344,
     palette: ["#eef1ff", "#aeaef1", "#3a0ca3"]
@@ -128,7 +134,8 @@ export const PEOPLE = [
     role: "Engineering",
     roomId: "garden",
     presenceGroup: "space",
-    experienceMode: "essential",
+    experienceMode: "3d",
+    liveCondition: "video-starting",
     planX: 150,
     planY: 448,
     palette: ["#eef1ff", "#45b6e9", "#001a37"]
@@ -141,6 +148,8 @@ export const PEOPLE = [
     presenceGroup: "space",
     status: "In conversation",
     signal: "conversation",
+    experienceMode: "3d",
+    liveCondition: "weak-connection",
     planX: 842,
     planY: 448,
     palette: ["#e8e9fa", "#9985f6", "#5a11d8"]
@@ -297,7 +306,7 @@ export const PEOPLE = [
     presenceGroup: "space",
     status: "In conversation",
     signal: "conversation",
-    experienceMode: "2d",
+    experienceMode: "3d",
     planX: 548,
     planY: 574,
     palette: ["#eef1ff", "#208cdf", "#3a0ca3"]
@@ -354,6 +363,42 @@ export const ROOMS = [
 ];
 
 const roomById = Object.fromEntries(ROOMS.map((room) => [room.id, room]));
+
+export function getEffectivePeople(people) {
+  const occupantsByRoom = people.reduce((groups, person) => {
+    groups[person.roomId] = (groups[person.roomId] || 0) + 1;
+    return groups;
+  }, {});
+
+  return people.map((person) => {
+    const room = roomById[person.roomId];
+    const roomHasCompany = (occupantsByRoom[person.roomId] || 0) > 1;
+    let statuses;
+
+    if (roomHasCompany) {
+      statuses = ["In conversation", ...(room?.open === false ? ["Private"] : [])];
+    } else if (person.status === "Private" && room?.open !== false) {
+      statuses = [];
+    } else if (person.status === "In conversation") {
+      statuses = [];
+    } else {
+      statuses = person.status ? [person.status] : [];
+    }
+
+    const status = statuses[0];
+    if (status === person.status && JSON.stringify(statuses) === JSON.stringify(person.statuses || (person.status ? [person.status] : []))) return person;
+    return {
+      ...person,
+      status,
+      statuses,
+      signal: status === "Private" ? "private" : status === "In conversation" ? "conversation" : undefined
+    };
+  });
+}
+
+export function getPersonStatuses(person) {
+  return person?.statuses?.length ? person.statuses : person?.status ? [person.status] : [];
+}
 
 const INCOMING_REQUESTS = {
   sol: { kind: "jump" },
@@ -1750,6 +1795,7 @@ export function ChatPanel({ person, requestMessages, closing, onClose, onBack, o
   const [incomingRequestState, setIncomingRequestState] = useState("pending");
   const incomingTime = person.id.charCodeAt(0) % 2 === 0 ? "10:42 AM" : "10:38 AM";
   const outgoingTime = person.id.charCodeAt(person.id.length - 1) % 2 === 0 ? "10:44 AM" : "10:41 AM";
+  const personStatuses = getPersonStatuses(person);
 
   useEffect(() => {
     setIncomingRequestState("pending");
@@ -1766,7 +1812,7 @@ export function ChatPanel({ person, requestMessages, closing, onClose, onBack, o
       }}
     >
       <div className="chat-heading">
-        <div className="chat-heading-copy">
+        <div className={`chat-heading-copy ${onBack ? "with-back" : ""}`}>
           <div className="chat-title-row">
             {onBack && <IconButton className="chat-back-button" label="Back to room details" onClick={onBack}><ArrowLeft size={17} /></IconButton>}
             <Avatar person={person} size="tiny" portrait />
@@ -1782,11 +1828,33 @@ export function ChatPanel({ person, requestMessages, closing, onClose, onBack, o
                 <MapIcon size={16} />
               </ActionButton>
             </div>
+            <IconButton label="Close chat" onClick={onClose}>
+              <X size={18} />
+            </IconButton>
+          </div>
+          <div className="chat-heading-meta">
+            {personStatuses.map((status) => {
+              const statusMeta = getStatusMeta(status);
+              const statusTone = getStatusIconOption(statusMeta.iconId)?.tone || "navy";
+              return (
+                <span
+                  className={`chat-heading-status-label status-tone-${statusTone}`}
+                  role="img"
+                  tabIndex="0"
+                  key={status}
+                  aria-label={`Status: ${statusMeta.description}`}
+                  data-status-tooltip={statusMeta.description}
+                >
+                  <span className="chat-heading-status-icon" aria-hidden="true">
+                    <StatusIcon iconId={statusMeta.iconId} size={12} />
+                  </span>
+                  {status}
+                </span>
+              );
+            })}
+            <ModeIndicator mode={person.experienceMode} showLabel textOnly className="chat-name-mode" />
           </div>
         </div>
-        <IconButton label="Close chat" onClick={onClose}>
-          <X size={18} />
-        </IconButton>
       </div>
 
       <div className="chat-thread">
@@ -1951,7 +2019,7 @@ export function MapSurface({
   const [isPanning, setIsPanning] = useState(false);
 
   const mapPeople = useMemo(
-    () => [...PEOPLE, ...additionalPeople, ...addedPeople],
+    () => getEffectivePeople([...PEOPLE, ...additionalPeople, ...addedPeople]),
     [additionalPeople, addedPeople]
   );
   const peopleByRoomForMap = useMemo(
@@ -3151,7 +3219,29 @@ function RoomDetailsPanel({
               {people.map((person) => (
                 <button className="room-details-person" type="button" key={person.id} onClick={() => onSelectPerson(person)}>
                   <Avatar person={person} size="small" portrait />
-                  <span><strong>{person.name}</strong><small>{person.role || person.status || "Available"}</small></span>
+                  <span className="room-details-person-copy">
+                    <span className="room-details-person-name-row">
+                      <strong>{person.name}</strong>
+                      <span className="room-details-person-statuses">
+                        {getPersonStatuses(person).map((status) => {
+                          const statusMeta = getStatusMeta(status);
+                          return (
+                            <span
+                              className={`chat-name-status status-automatic room-details-person-status status-tone-${getStatusIconOption(statusMeta.iconId)?.tone || "navy"}`}
+                              role="img"
+                              tabIndex="0"
+                              key={status}
+                              aria-label={`Status: ${statusMeta.description}`}
+                              data-status-tooltip={statusMeta.description}
+                            >
+                              <StatusIcon iconId={statusMeta.iconId} size={13} />
+                            </span>
+                          );
+                        })}
+                      </span>
+                    </span>
+                    <ModeIndicator mode={person.experienceMode} showLabel textOnly className="room-details-person-mode" />
+                  </span>
                 </button>
               ))}
             </div>
@@ -3393,7 +3483,7 @@ function PersonMarker({ person, highlighted, dimmed, showPortrait, markerScale, 
         left: `${(position.x / SVG_WIDTH) * 100}%`,
         top: `${(position.y / SVG_HEIGHT) * 100}%`
       }}
-      aria-label={`${person.name} on map`}
+      aria-label={`${person.name} on map. ${getModeMeta(person.experienceMode).label} mode`}
       role={onSelect ? "button" : undefined}
       tabIndex={onSelect ? 0 : undefined}
       onClick={onSelect ? (event) => {
@@ -3403,9 +3493,11 @@ function PersonMarker({ person, highlighted, dimmed, showPortrait, markerScale, 
       onKeyDown={handleKeyDown}
     >
       {showPortrait ? (
-        <Avatar person={person} size="map" portrait />
+        <Avatar person={person} size="map" portrait showModeBadge />
       ) : null}
-      <span className="person-marker-label">{person.name}</span>
+      <span className="person-marker-label">
+        <span>{person.name}</span>
+      </span>
     </div>
   );
 }
@@ -3460,9 +3552,10 @@ function ActionButton({ label, onClick, active = false, variant = "", badge, chi
   );
 }
 
-function Avatar({ person, size = "medium", portrait = false, modeBadge = "" }) {
+function Avatar({ person, size = "medium", portrait = false, modeBadge = "", showModeBadge = false }) {
   const initial = person.name.trim().charAt(0).toUpperCase();
   const [start, middle, end] = person.palette;
+  const personModeMeta = getModeMeta(person.experienceMode);
   const badgeLabel =
     modeBadge === "2d" ? "2D" : modeBadge === "audio" ? "AU" : modeBadge === "essential" ? "ES" : "";
   const badgeTone = modeBadge === "2d" ? "two-d" : modeBadge === "audio" ? "audio" : "essential";
@@ -3493,6 +3586,11 @@ function Avatar({ person, size = "medium", portrait = false, modeBadge = "" }) {
       {badgeLabel ? (
         <span className={`avatar-mode-badge ${badgeTone}`} aria-hidden="true">
           {badgeLabel}
+        </span>
+      ) : null}
+      {showModeBadge && personModeMeta.id !== "3d" ? (
+        <span className={`avatar-mode-indicator mode-${personModeMeta.id}`} aria-hidden="true">
+          <ModeIcon mode={person.experienceMode} size={11} />
         </span>
       ) : null}
     </span>

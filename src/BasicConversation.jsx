@@ -12,11 +12,12 @@ import {
   Minimize2,
   MoreHorizontal,
   Navigation,
+  Smile,
   UserPlus,
   X
 } from "lucide-react";
 import { getRoomBackground } from "./roomBackgrounds.js";
-import honeycombIcon from "./assets/honeycomb-icon.svg";
+import { LiveConditionIcon, ModeIndicator, getLiveConditionMeta } from "./presenceMeta.jsx";
 import peerAFeed from "./assets/peer-a.mp4";
 import peerBFeed from "./assets/peer-b.mp4";
 import peerCFeed from "./assets/peer-c.mp4";
@@ -66,7 +67,15 @@ export function ConversationBoundary({
           {!solo && (
             <div className="basic-mode-switch" aria-label="Conversation mode">
               <button className={mode === "video" ? "active" : ""} type="button" aria-pressed={mode === "video"} onClick={() => onModeChange("video")}>
-                <img className="honeycomb-mode-icon" src={honeycombIcon} alt="" /> 2D
+                <svg className="honeycomb-mode-icon" viewBox="0 0 16 16" aria-hidden="true">
+                  <circle cx="2.61" cy="7.85" r="1.85" transform="rotate(-45 2.61 7.85)" fill="currentColor" />
+                  <circle cx="13.39" cy="7.77" r="1.85" transform="rotate(-45 13.39 7.77)" fill="currentColor" />
+                  <circle cx="10.69" cy="3.28" r="1.85" transform="rotate(-45 10.69 3.28)" fill="currentColor" />
+                  <circle cx="5.31" cy="3.28" r="1.85" transform="rotate(-45 5.31 3.28)" fill="currentColor" />
+                  <circle cx="8" cy="7.85" r="1.85" transform="rotate(-45 8 7.85)" fill="currentColor" />
+                  <circle cx="5.31" cy="12.34" r="1.85" transform="rotate(-45 5.31 12.34)" fill="currentColor" />
+                  <circle cx="10.69" cy="12.33" r="1.85" transform="rotate(-45 10.69 12.33)" fill="currentColor" />
+                </svg> 2D
               </button>
               <button className={mode === "audio" ? "active" : ""} type="button" aria-pressed={mode === "audio"} onClick={() => onModeChange("audio")}>
                 <Mic size={17} /> Audio only
@@ -90,8 +99,9 @@ export function ConversationBoundary({
           {selfView && <SelfGridParticipant mode={mode} selfView={selfView} />}
           {participants.slice(0, selfView ? 6 : 7).map((participant, index) => {
             const isSpeaking = mode === "audio" && index === 1;
+            const conditionMeta = getLiveConditionMeta(participant.liveCondition);
             return (
-            <article className={`basic-honeycomb-person ${index === 0 ? "current" : ""} ${isSpeaking ? "speaking" : ""}`} key={participant.id} aria-label={`${participant.name}${isSpeaking ? ", speaking" : ""}`}>
+            <article className={`basic-honeycomb-person ${conditionMeta ? `has-live-condition condition-${conditionMeta.tone}` : ""} ${index === 0 ? "current" : ""} ${isSpeaking ? "speaking" : ""}`} key={participant.id} aria-label={`${participant.name}${isSpeaking ? ", speaking" : ""}${conditionMeta ? `, ${conditionMeta.label}` : ""}`} tabIndex={conditionMeta ? 0 : undefined}>
               <div className="basic-honeycomb-avatar">
                 {participant.photo ? (
                   mode === "video" ? (
@@ -114,10 +124,13 @@ export function ConversationBoundary({
                   </span>
                 )}
               </div>
-              <strong className={isSpeaking ? "speaking-name" : ""} role={isSpeaking ? "status" : undefined}>
+              <ModeIndicator mode={participant.experienceMode} className="basic-avatar-mode" />
+              <strong className={`${isSpeaking ? "speaking-name" : ""} ${conditionMeta ? "condition-name" : ""}`.trim()} role={isSpeaking ? "status" : undefined}>
                 {isSpeaking && <span className="basic-speaking-wave" aria-hidden="true"><i /><i /><i /><i /></span>}
+                {conditionMeta ? <LiveConditionIcon condition={participant.liveCondition} size={15} /> : null}
                 {participant.id === "you" ? "You" : participant.name.split(" ")[0]}
               </strong>
+              {conditionMeta ? <span className="avatar-condition-tooltip" role="tooltip"><strong>{conditionMeta.label}</strong><span>{conditionMeta.tooltip}</span></span> : null}
             </article>
             );
           })}
@@ -149,7 +162,10 @@ function SelfGridParticipant({ mode, selfView }) {
           </span>
         )}
       </div>
-      <strong>You</strong>
+      <ModeIndicator mode={mode === "audio" ? "audio" : "2d"} className="basic-avatar-mode" />
+      <strong>
+        You
+      </strong>
       <div className="self-grid-options">
         <button
           type="button"
@@ -161,6 +177,10 @@ function SelfGridParticipant({ mode, selfView }) {
         </button>
         {menuOpen && (
           <div className="self-grid-menu" role="menu" aria-label="Self view options">
+            <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); selfView.onSetStatus?.(); }}>
+              <Smile size={15} aria-hidden="true" />
+              {selfView.customStatus ? "Edit status" : "Set a status"}
+            </button>
             <button type="button" role="menuitem" onClick={selfView.onRemove}>
               <span className="grid-menu-icon remove" aria-hidden="true"><Grid2X2 size={15} /><X size={9} /></span>
               Remove from the grid
