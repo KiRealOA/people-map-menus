@@ -162,7 +162,7 @@ function SelfGridParticipant({ mode, selfView }) {
           </span>
         )}
       </div>
-      <ModeIndicator mode={mode === "audio" ? "audio" : "2d"} className="basic-avatar-mode" />
+      <ModeIndicator mode="basic" className="basic-avatar-mode" />
       <strong>
         You
       </strong>

@@ -53,7 +53,7 @@ import {
   getStatusIconOption,
   getStatusMeta,
 } from "./statusIcons.jsx";
-import { ModeIcon, ModeIndicator, getModeMeta } from "./presenceMeta.jsx";
+import { ModeIcon, getModeMeta } from "./presenceMeta.jsx";
 
 const VISIBLE_PEOPLE = PEOPLE;
 
@@ -94,8 +94,12 @@ function BasicAvatarModeBadge({ mode }) {
   const meta = getModeMeta(mode);
   if (meta.id === "3d") return null;
   return (
-    <span className={`avatar-mode-indicator basic-avatar-mode-indicator mode-${meta.id}`} aria-label={`${meta.label} mode`}>
-      <ModeIcon mode={mode} size={10} />
+    <span
+      className={`avatar-mode-indicator basic-avatar-mode-indicator mode-${meta.id}`}
+      aria-label={meta.tooltip || `${meta.label} mode`}
+      data-mode-tooltip={meta.tooltip || `${meta.label} mode`}
+    >
+      <ModeIcon mode={mode} size={11} />
     </span>
   );
 }
@@ -651,7 +655,6 @@ function BasicApp() {
                         {getPersonStatuses(person).map((status) => <BasicStatusEmoji key={status} status={status} customStatus={person.customStatus} className="sidebar-name-status" />)}
                       </span>
                       </span>
-                      <ModeIndicator mode={person.experienceMode} showLabel textOnly className="basic-person-mode-row" />
                     </span>
                   </button>
                 ))}
@@ -732,7 +735,6 @@ function BasicApp() {
                           {getPersonStatuses(person).map((status) => <BasicStatusEmoji key={status} status={status} customStatus={person.customStatus} className="sidebar-name-status" />)}
                         </span>
                       </span>
-                      <ModeIndicator mode={person.experienceMode} showLabel textOnly className="basic-person-mode-row" />
                     </span>
                   </button>
                 ))}

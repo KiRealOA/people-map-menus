@@ -2823,10 +2823,19 @@ body {
   z-index: 4;
   top: 13%;
   left: 13%;
+  width: 40px;
+  height: 40px;
+  border-width: 2px;
+  border-radius: 14px;
   border-color: rgba(255, 255, 255, 0.72);
   background: rgba(235, 241, 249, 0.92);
   color: #42536c;
   backdrop-filter: blur(8px);
+}
+
+.basic-avatar-mode > svg {
+  width: 24px;
+  height: 24px;
 }
 
 .basic-avatar-status-accent {
@@ -3948,6 +3957,10 @@ button {
   object-position: center;
   filter: saturate(0.96) contrast(0.94) blur(0.3px);
   transform: scale(1.01);
+}
+
+.office-video-disabled {
+  display: none;
 }
 
 .app-shell.zoe-office-active .office-video {
@@ -5072,12 +5085,39 @@ h2 {
 .avatar-mode-indicator.mode-audio { color: #356a9a; background: #dcecf5; }
 
 .basic-avatar-mode-indicator {
-  right: -4px;
-  bottom: -3px;
-  width: 15px;
-  height: 15px;
+  right: -5px;
+  bottom: -4px;
+  width: 17px;
+  height: 17px;
   border-width: 2px;
-  border-radius: 5px;
+  border-radius: 6px;
+}
+
+.basic-avatar-mode-indicator::after {
+  position: absolute;
+  z-index: 30;
+  bottom: calc(100% + 7px);
+  left: 50%;
+  width: max-content;
+  padding: 6px 8px;
+  border-radius: 7px;
+  background: rgba(25, 31, 43, 0.94);
+  color: #fff;
+  content: attr(data-mode-tooltip);
+  font-size: 0.65rem;
+  font-weight: 600;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 3px);
+  transition: opacity 130ms ease, transform 130ms ease;
+  white-space: nowrap;
+}
+
+.basic-person-avatar:hover .basic-avatar-mode-indicator::after,
+.basic-person-list button:focus-visible .basic-avatar-mode-indicator::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }
 
 .avatar-photo {

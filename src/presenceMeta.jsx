@@ -1,8 +1,6 @@
 import React from "react";
 import {
   Box,
-  Mic,
-  Monitor,
   Video,
   VideoOff,
   WifiOff,
@@ -11,9 +9,29 @@ import {
 function HoneycombModeIcon({ size = 12, className = "" }) {
   return (
     <svg className={className} width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <circle cx="8" cy="4" r="2" fill="currentColor" />
-      <circle cx="5" cy="10" r="2" fill="currentColor" />
-      <circle cx="11" cy="10" r="2" fill="currentColor" />
+      <circle cx="8" cy="3.8" r="2.35" fill="currentColor" />
+      <circle cx="4.7" cy="10.3" r="2.35" fill="currentColor" />
+      <circle cx="11.3" cy="10.3" r="2.35" fill="currentColor" />
+    </svg>
+  );
+}
+
+function BasicModeIcon({ size = 12, className = "" }) {
+  return (
+    <svg className={className} width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="2.5" y="2" width="11" height="9" rx="1.25" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M8 11v2.25M5.75 14h4.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function AudioWaveModeIcon({ size = 12, className = "" }) {
+  return (
+    <svg className={className} width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <rect x="2" y="6" width="2" height="4" rx="1" fill="currentColor" />
+      <rect x="5" y="3.5" width="2" height="9" rx="1" fill="currentColor" />
+      <rect x="8" y="5" width="2" height="6" rx="1" fill="currentColor" />
+      <rect x="11" y="2" width="2" height="12" rx="1" fill="currentColor" />
     </svg>
   );
 }
@@ -40,10 +58,10 @@ const LIVE_CONDITIONS = Object.freeze({
 });
 
 const MODES = Object.freeze({
-  basic: { id: "basic", label: "Basic", Icon: Monitor },
+  basic: { id: "basic", label: "Basic", Icon: BasicModeIcon },
   "2d": { id: "2d", label: "2D", Icon: HoneycombModeIcon },
   "3d": { id: "3d", label: "3D", Icon: Box },
-  audio: { id: "audio", label: "Audio", Icon: Mic },
+  audio: { id: "audio", label: "Audio", tooltip: "Audio only", Icon: AudioWaveModeIcon },
 });
 
 export function getLiveConditionMeta(condition) {

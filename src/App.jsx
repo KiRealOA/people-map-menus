@@ -29,25 +29,27 @@ import {
   LoaderCircle,
   LocateFixed
 } from "lucide-react";
-import officeBackdrop from "./assets/katmai-office-backdrop.png";
 import officeBackdropVideo from "./assets/Katmai_Office_bg_01.mp4";
+import emptyOfficeBackdrop from "./assets/empty-office-bg.jpg";
 import zoeOfficeBackdrop from "./assets/zoes-office.png";
 import zoeProfile from "./assets/zoe-profile.png";
+
+const SHOW_OFFICE_VIDEO = false;
 import { getRoomBackground } from "./roomBackgrounds.js";
 import { StatusIcon, getStatusIconOption, getStatusMeta } from "./statusIcons.jsx";
 import { ModeIcon, ModeIndicator, getModeMeta } from "./presenceMeta.jsx";
 
 const PERSON_PHOTOS = {
-  maya: "https://randomuser.me/api/portraits/women/44.jpg",
+  maya: "https://randomuser.me/api/portraits/men/7.jpg",
   noah: "https://randomuser.me/api/portraits/men/32.jpg",
   sol: "https://randomuser.me/api/portraits/women/68.jpg",
-  dana: "https://randomuser.me/api/portraits/women/52.jpg",
+  dana: "https://randomuser.me/api/portraits/men/8.jpg",
   eli: "https://randomuser.me/api/portraits/men/75.jpg",
   ren: "https://randomuser.me/api/portraits/men/41.jpg",
   jules: "https://randomuser.me/api/portraits/women/23.jpg",
   sam: "https://randomuser.me/api/portraits/men/15.jpg",
   emily: "https://randomuser.me/api/portraits/women/11.jpg",
-  marcus: "https://randomuser.me/api/portraits/men/54.jpg",
+  marcus: "https://randomuser.me/api/portraits/women/44.jpg",
   priya: "https://randomuser.me/api/portraits/women/37.jpg",
   omar: "https://randomuser.me/api/portraits/men/64.jpg",
   lina: "https://randomuser.me/api/portraits/women/60.jpg",
@@ -81,7 +83,7 @@ const BILLING_CONFIG = {
 export const PEOPLE = [
   {
     id: "maya",
-    name: "Maya Chen",
+    name: "Matthew Chen",
     role: "Product design",
     roomId: "river",
     presenceGroup: "space",
@@ -119,14 +121,14 @@ export const PEOPLE = [
   },
   {
     id: "dana",
-    name: "Dana Brooks",
+    name: "Daniel Brooks",
     role: "Operations",
     roomId: "river",
     presenceGroup: "space",
     status: "Away",
     signal: "away",
     unreadCount: 2,
-    experienceMode: "audio",
+    experienceMode: "basic",
     planX: 662,
     planY: 154,
     palette: ["#f7f8ff", "#a3a8bf", "#5f527c"]
@@ -191,7 +193,7 @@ export const PEOPLE = [
   },
   {
     id: "marcus",
-    name: "Marcus Lee",
+    name: "Marissa Lee",
     role: "Data",
     roomId: "river",
     presenceGroup: "elsewhere",
@@ -1017,7 +1019,7 @@ function App() {
   return (
     <main
       className={`app-shell ${zoeOfficeActive ? "zoe-office-active" : ""}`}
-      style={{ "--office-backdrop": `url(${zoeOfficeActive ? zoeOfficeBackdrop : officeBackdrop})` }}
+      style={{ "--office-backdrop": `url(${zoeOfficeActive ? zoeOfficeBackdrop : emptyOfficeBackdrop})` }}
     >
       <SpatialBackdrop />
 
@@ -1064,7 +1066,7 @@ function SpatialBackdrop() {
     <div className="spatial-backdrop" aria-hidden="true">
       <div className="office-photo" />
       <video
-        className="office-video"
+        className={`office-video ${SHOW_OFFICE_VIDEO ? "" : "office-video-disabled"}`}
         autoPlay
         muted
         playsInline
