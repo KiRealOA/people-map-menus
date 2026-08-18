@@ -187,6 +187,63 @@ body {
   display: none;
 }
 
+.av-empty-photo {
+  background: #d8d3df;
+}
+
+.av-photo-action {
+  position: absolute;
+  z-index: 4;
+  top: 50%;
+  left: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(63, 140, 249, 0.68);
+  color: #fff;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.45px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-shadow: 0 1px 5px rgba(31, 25, 51, 0.72);
+  box-shadow: none;
+  cursor: pointer;
+  transform: translate(-50%, calc(-50% + 5px));
+  transition: opacity 160ms ease, transform 160ms ease, background 160ms ease, box-shadow 160ms ease;
+}
+
+.av-photo-action:hover,
+.av-photo-action:focus-visible {
+  outline: 0;
+  background: #3f8cf9;
+  text-shadow: none;
+  box-shadow: 0 7px 18px rgba(10, 57, 126, 0.32);
+}
+
+.av-photo-action.is-replace {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.av-self-monitor:hover .av-photo-action.is-replace,
+.av-self-monitor:focus-within .av-photo-action.is-replace {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+}
+
+.av-photo-action.is-first {
+  opacity: 1;
+  transform: translate(-50%, -50%);
+}
+
 .av-muted-pill {
   position: absolute;
   z-index: 3;
@@ -321,19 +378,6 @@ body {
   letter-spacing: 0.45px;
   text-transform: uppercase;
   white-space: nowrap;
-}
-
-.av-snapshot {
-  top: 8px;
-  right: 7px;
-  width: 38px;
-  height: 38px;
-  background: #3f8cf9;
-}
-
-.av-snapshot:hover,
-.av-snapshot:focus-visible {
-  background: #0056cf;
 }
 
 .av-settings { left: 8px; bottom: 51px; }

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import katmaiHorizontalLogo from "./assets/katmai-logo-horizontal.png";
 import avSetupBackground from "./assets/av-setup-background.png";
+import emptyProfilePicture from "./assets/empty-profile-picture.png";
 import zoeProfile from "./assets/zoe-profile.png";
 import videoMutePlaceholder from "./assets/video-mute-placeholder.png";
 
@@ -178,9 +179,11 @@ export default function AVSetup() {
     }, 650);
   }
 
-  const showingSaved = Boolean(savedImage && (displayMode === "saved" || !cameraOn));
+  const photoModeSelected = displayMode === "saved";
+  const showingEmptyPhoto = photoModeSelected && !savedImage;
+  const showingSaved = Boolean(savedImage && (photoModeSelected || !cameraOn));
   const showingCameraOffPlaceholder = !cameraOn && !savedImage;
-  const showingCameraUnavailableFallback = cameraOn && !cameraReady;
+  const showingCameraUnavailableFallback = cameraOn && !cameraReady && !showingEmptyPhoto;
 
   return (
     <main className="av-setup" style={{ "--av-background": `url(${avSetupBackground})` }}>
@@ -201,7 +204,7 @@ export default function AVSetup() {
             <div className="av-avatar-ring" aria-live="polite">
               <video
                 ref={videoRef}
-                className={showingSaved || showingCameraOffPlaceholder || showingCameraUnavailableFallback ? "is-hidden" : ""}
+                className={showingSaved || showingEmptyPhoto || showingCameraOffPlaceholder || showingCameraUnavailableFallback ? "is-hidden" : ""}
                 autoPlay
                 muted
                 playsInline
@@ -209,8 +212,20 @@ export default function AVSetup() {
               />
               {showingCameraUnavailableFallback && <img src={zoeProfile} alt="Camera preview placeholder" />}
               {showingCameraOffPlaceholder && <img src={videoMutePlaceholder} alt="Your camera is off" />}
+              {showingEmptyPhoto && <img className="av-empty-photo" src={emptyProfilePicture} alt="No saved profile photo" />}
               {showingSaved && <img src={savedImage} alt="Your saved profile" />}
               {!micOn && <span className="av-muted-pill" role="status">Muted</span>}
+              {countdown === null && !captureConfirmed && (savedImage || showingEmptyPhoto) && (
+                <button
+                  className={`av-photo-action ${savedImage ? "is-replace" : "is-first"}`}
+                  type="button"
+                  onClick={requestCapture}
+                  aria-label={savedImage ? "Replace profile photo" : "Take profile photo"}
+                >
+                  <Camera size={18} aria-hidden="true" />
+                  <span>{savedImage ? "Replace photo" : "Take photo"}</span>
+                </button>
+              )}
               {countdown !== null && (
                 <span className="av-countdown" key={countdown} role="status" aria-live="assertive" aria-label={`${countdown}`}>
                   <svg viewBox="0 0 104 104" aria-hidden="true">
@@ -222,9 +237,6 @@ export default function AVSetup() {
               {captureConfirmed && <span className="av-capture-confirmed"><span className="av-capture-check"><Check size={24} /></span>Saved</span>}
             </div>
 
-            <button className="av-rim-control av-snapshot" type="button" onClick={requestCapture} disabled={countdown !== null} aria-label="Take profile image" title="Take profile image">
-              <Camera size={19} />
-            </button>
             <button className="av-rim-control av-settings" type="button" aria-label="Open settings">
               <Settings size={18} />
               <span>Settings</span>
@@ -239,15 +251,15 @@ export default function AVSetup() {
             </button>
           </div>
 
-          {savedImage && (
-            <div className="av-view-options">
-              <div className="av-view-toggle" role="group" aria-label="Choose avatar preview">
-                <button className={showingSaved ? "" : "active"} type="button" aria-pressed={!showingSaved} onClick={() => selectDisplayMode("live")}><Video size={13} aria-hidden="true" />Live</button>
-                <button className={showingSaved ? "active" : ""} type="button" aria-pressed={showingSaved} onClick={() => selectDisplayMode("saved")}><ImageIcon size={13} aria-hidden="true" />Photo</button>
-              </div>
-              <p className="av-view-description" aria-live="polite">{showingSaved ? "This is your saved profile photo." : "This is your live preview."}</p>
+          <div className="av-view-options">
+            <div className="av-view-toggle" role="group" aria-label="Choose avatar preview">
+              <button className={photoModeSelected ? "" : "active"} type="button" aria-pressed={!photoModeSelected} onClick={() => selectDisplayMode("live")}><Video size={13} aria-hidden="true" />Live</button>
+              <button className={photoModeSelected ? "active" : ""} type="button" aria-pressed={photoModeSelected} onClick={() => selectDisplayMode("saved")}><ImageIcon size={13} aria-hidden="true" />Photo</button>
             </div>
-          )}
+            <p className="av-view-description" aria-live="polite">
+              {showingEmptyPhoto ? "You haven’t taken a profile photo yet." : photoModeSelected ? "This is your saved profile photo." : "This is your live preview."}
+            </p>
+          </div>
 
           <label className="av-name-field">
             <UserRound size={20} aria-hidden="true" />
