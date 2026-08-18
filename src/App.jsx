@@ -33,8 +33,10 @@ import officeBackdropVideo from "./assets/Katmai_Office_bg_01.mp4";
 import emptyOfficeBackdrop from "./assets/empty-office-bg.jpg";
 import zoeOfficeBackdrop from "./assets/zoes-office.png";
 import zoeProfile from "./assets/zoe-profile.png";
+import zoeAvatarVideo from "./assets/peer-e.mp4";
 
 const SHOW_OFFICE_VIDEO = false;
+const AvatarPlaybackContext = React.createContext(null);
 import { getRoomBackground } from "./roomBackgrounds.js";
 import { StatusIcon, getStatusIconOption, getStatusMeta } from "./statusIcons.jsx";
 import { ModeIcon, ModeIndicator, getModeMeta } from "./presenceMeta.jsx";
@@ -252,6 +254,7 @@ export const PEOPLE = [
     id: "zoe",
     name: "Zoe Walsh",
     role: "QA",
+    avatarVideo: zoeAvatarVideo,
     roomId: "demo",
     presenceGroup: "elsewhere",
     planX: 646,
@@ -1017,11 +1020,12 @@ function App() {
   }
 
   return (
-    <main
-      className={`app-shell ${zoeOfficeActive ? "zoe-office-active" : ""}`}
-      style={{ "--office-backdrop": `url(${zoeOfficeActive ? zoeOfficeBackdrop : emptyOfficeBackdrop})` }}
-    >
-      <SpatialBackdrop />
+    <AvatarPlaybackContext.Provider value={zoeOfficeActive ? "zoe" : null}>
+      <main
+        className={`app-shell ${zoeOfficeActive ? "zoe-office-active" : ""}`}
+        style={{ "--office-backdrop": `url(${zoeOfficeActive ? zoeOfficeBackdrop : emptyOfficeBackdrop})` }}
+      >
+      <SpatialBackdrop showZoeAvatar={zoeOfficeActive} />
 
       {surface === "people" && (
         <PeopleSurface
@@ -1055,13 +1059,14 @@ function App() {
         />
       )}
 
-      {!surface && <DockHint />}
-      <ToastStack toasts={toasts} />
-    </main>
+        {!surface && <DockHint />}
+        <ToastStack toasts={toasts} />
+      </main>
+    </AvatarPlaybackContext.Provider>
   );
 }
 
-function SpatialBackdrop() {
+function SpatialBackdrop({ showZoeAvatar = false }) {
   return (
     <div className="spatial-backdrop" aria-hidden="true">
       <div className="office-photo" />
@@ -1074,6 +1079,22 @@ function SpatialBackdrop() {
       >
         <source src={officeBackdropVideo} type="video/mp4" />
       </video>
+      {showZoeAvatar && (
+        <div className="zoe-office-stage">
+          <div className="zoe-office-avatar">
+            <video
+              src={zoeAvatarVideo}
+              poster={zoeProfile}
+              autoPlay
+              muted
+              loop
+              playsInline
+              preload="auto"
+            />
+            <span>Zoe</span>
+          </div>
+        </div>
+      )}
       <div className="office-soften" />
     </div>
   );
@@ -3627,6 +3648,7 @@ function ActionButton({ label, onClick, active = false, variant = "", badge, chi
 }
 
 function Avatar({ person, size = "medium", portrait = false, modeBadge = "", showModeBadge = false }) {
+  const activeVideoPersonId = React.useContext(AvatarPlaybackContext);
   const initial = person.name.trim().charAt(0).toUpperCase();
   const [start, middle, end] = person.palette;
   const personModeMeta = getModeMeta(person.experienceMode);
@@ -3646,7 +3668,18 @@ function Avatar({ person, size = "medium", portrait = false, modeBadge = "", sho
       }
       aria-hidden="true"
     >
-      {portrait && person.photo ? (
+      {portrait && person.avatarVideo && activeVideoPersonId === person.id ? (
+        <video
+          className="avatar-photo avatar-video"
+          src={person.avatarVideo}
+          poster={person.photo}
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="auto"
+        />
+      ) : portrait && person.photo ? (
         <img
           className="avatar-photo"
           src={person.photo}
