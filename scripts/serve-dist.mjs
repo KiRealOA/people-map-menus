@@ -17,7 +17,9 @@ const types = {
 };
 
 function safePath(urlPath) {
-  const clean = normalize(decodeURIComponent(urlPath.split("?")[0]))
+  const requestedPath = decodeURIComponent(urlPath.split("?")[0])
+    .replace(/^\/people-map-menus(?=\/|$)/, "") || "/";
+  const clean = normalize(requestedPath)
     .replace(/^[/\\]+/, "")
     .replace(/^(\.\.[/\\])+/, "");
   const candidate = resolve(join(root, clean === "/" ? "index.html" : clean));
