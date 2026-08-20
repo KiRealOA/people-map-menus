@@ -23,6 +23,7 @@ export default function AVSetup() {
   const streamRef = useRef(null);
   const captureTimerRef = useRef(null);
   const countdownTimerRef = useRef(null);
+  const audioContextRef = useRef(null);
   const [name, setName] = useState("");
   const [savedImage, setSavedImage] = useState("");
   const [displayMode, setDisplayMode] = useState("live");
@@ -65,6 +66,7 @@ export default function AVSetup() {
     return () => {
       cancelled = true;
       streamRef.current?.getTracks().forEach((track) => track.stop());
+      audioContextRef.current?.close().catch(() => {});
       if (captureTimerRef.current) window.clearTimeout(captureTimerRef.current);
       if (countdownTimerRef.current) window.clearTimeout(countdownTimerRef.current);
     };
@@ -86,6 +88,63 @@ export default function AVSetup() {
     startCaptureCountdown();
   }
 
+  function getAudioContext() {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextClass) return null;
+    if (!audioContextRef.current) audioContextRef.current = new AudioContextClass();
+    if (audioContextRef.current.state === "suspended") audioContextRef.current.resume().catch(() => {});
+    return audioContextRef.current;
+  }
+
+  function playCountdownTick(count) {
+    const audioContext = getAudioContext();
+    if (!audioContext) return;
+
+    const now = audioContext.currentTime;
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(620 + ((3 - count) * 55), now);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.048, now + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.065);
+    oscillator.connect(gain).connect(audioContext.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.07);
+  }
+
+  function playShutterSound() {
+    const audioContext = getAudioContext();
+    if (!audioContext) return;
+
+    const createShutterClick = (startOffset, duration, volume) => {
+      const frameCount = Math.max(1, Math.floor(audioContext.sampleRate * duration));
+      const buffer = audioContext.createBuffer(1, frameCount, audioContext.sampleRate);
+      const channel = buffer.getChannelData(0);
+      for (let index = 0; index < frameCount; index += 1) {
+        channel[index] = ((Math.random() * 2) - 1) * (1 - (index / frameCount));
+      }
+
+      const source = audioContext.createBufferSource();
+      const filter = audioContext.createBiquadFilter();
+      const gain = audioContext.createGain();
+      const start = audioContext.currentTime + startOffset;
+      source.buffer = buffer;
+      filter.type = "bandpass";
+      filter.frequency.setValueAtTime(920, start);
+      filter.Q.setValueAtTime(0.75, start);
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(volume, start + 0.006);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+      source.connect(filter).connect(gain).connect(audioContext.destination);
+      source.start(start);
+      source.stop(start + duration);
+    };
+
+    createShutterClick(0, 0.075, 0.068);
+    createShutterClick(0.082, 0.06, 0.048);
+  }
+
   function startCaptureCountdown() {
     setShowReplacePrompt(false);
     setCaptureConfirmed(false);
@@ -94,12 +153,14 @@ export default function AVSetup() {
 
     let nextCount = 3;
     setCountdown(nextCount);
+    playCountdownTick(nextCount);
     if (countdownTimerRef.current) window.clearTimeout(countdownTimerRef.current);
 
     const advanceCountdown = () => {
       nextCount -= 1;
       if (nextCount > 0) {
         setCountdown(nextCount);
+        playCountdownTick(nextCount);
         countdownTimerRef.current = window.setTimeout(advanceCountdown, 1000);
         return;
       }
@@ -113,6 +174,7 @@ export default function AVSetup() {
 
   function captureImage() {
     setShowReplacePrompt(false);
+    playShutterSound();
     const canvas = document.createElement("canvas");
     const video = videoRef.current;
     const size = 480;

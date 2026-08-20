@@ -232,8 +232,8 @@ body {
   pointer-events: none;
 }
 
-.av-self-monitor:hover .av-photo-action.is-replace,
-.av-self-monitor:focus-within .av-photo-action.is-replace {
+.av-avatar-ring:hover .av-photo-action.is-replace,
+.av-avatar-ring:focus-within .av-photo-action.is-replace {
   opacity: 1;
   pointer-events: auto;
   transform: translate(-50%, -50%);
